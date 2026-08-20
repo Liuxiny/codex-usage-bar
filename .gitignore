@@ -1,0 +1,16 @@
+# Build output: publish installers as GitHub Release assets instead of committing them.
+dist/
+
+# Logs / runtime state
+*.log
+*.tmp
+
+# Windows / editors
+Thumbs.db
+Desktop.ini
+.vscode/
+.idea/
+
+# Local patches / archives
+*.patch
+*.zip

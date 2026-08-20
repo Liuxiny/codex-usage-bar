@@ -1,0 +1,22 @@
+{
+  "usage": {
+    "aria": "Codex Usage",
+    "detailsAria": "Codex usage details",
+    "remaining": "Codex remaining",
+    "resetUnavailable": "Reset time unavailable",
+    "today": "Today",
+    "lifetime": "Total",
+    "tokenUnit": "Token"
+  },
+  "date": {
+    "today": "Today",
+    "tomorrow": "Tomorrow",
+    "reset": "reset",
+    "monthDay": "{month}/{day}",
+    "yearMonthDay": "{year}/{month}/{day}"
+  },
+  "tray": {
+    "refresh": "Refresh",
+    "exit": "Exit"
+  }
+}
