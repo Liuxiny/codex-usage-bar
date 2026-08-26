@@ -460,6 +460,11 @@ namespace CodexUsageBar
 
         internal static void ParseUsage(object response, UsageSnapshot snapshot)
         {
+            ParseUsage(response, snapshot, DateTime.UtcNow);
+        }
+
+        internal static void ParseUsage(object response, UsageSnapshot snapshot, DateTime officialUtcNow)
+        {
             var root = response as Dictionary<string, object>;
             if (root == null) return;
             object summaryValue;
@@ -478,7 +483,8 @@ namespace CodexUsageBar
                 if (array != null) buckets = array.ToArray();
             }
             if (buckets == null) return;
-            string yesterday = DateTime.Today.AddDays(-1).ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
+            snapshot.YesterdayTokens = 0;
+            string yesterday = officialUtcNow.ToUniversalTime().Date.AddDays(-1).ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
             foreach (object value in buckets)
             {
                 var bucket = value as Dictionary<string, object>;

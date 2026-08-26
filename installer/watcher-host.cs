@@ -14,8 +14,8 @@ using Microsoft.Win32;
 [assembly: AssemblyTitle("Codex Usage Bar")]
 [assembly: AssemblyProduct("Codex Usage Bar")]
 [assembly: AssemblyCompany("Codex Usage Bar")]
-[assembly: AssemblyVersion("0.6.2.0")]
-[assembly: AssemblyFileVersion("0.6.2.0")]
+[assembly: AssemblyVersion("0.6.3.0")]
+[assembly: AssemblyFileVersion("0.6.3.0")]
 
 namespace CodexUsageBar
 {
@@ -45,7 +45,7 @@ namespace CodexUsageBar
 
     internal static class CompanionHost
     {
-        internal const string Version = "0.6.2";
+        internal const string Version = "0.6.3";
         internal const string MutexName = "Local\\CodexUsageBarCompanion";
         internal const string ExitEventName = "Local\\CodexUsageBarExit";
 
@@ -786,10 +786,13 @@ namespace CodexUsageBar
                 Assert(weeklyOnly.DisplayWindows.Count == 1 && weeklyOnly.DisplayWindows[0].WindowDurationMins == 10080,
                     "weekly-only fallback");
 
-                string yesterday = DateTime.Today.AddDays(-1).ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
-                string usageSample = "{\"summary\":{\"lifetimeTokens\":4567},\"dailyUsageBuckets\":[{\"startDate\":\"" + yesterday + "\",\"tokens\":1234}]}";
-                AppDataParser.ParseUsage(new JavaScriptSerializer().DeserializeObject(usageSample), snapshot);
-                Assert(snapshot.YesterdayTokens == 1234 && snapshot.LifetimeTokens == 4567, "yesterday token parsing");
+                DateTime officialNow = new DateTime(2026, 8, 26, 16, 50, 0, DateTimeKind.Utc);
+                string usageSample = "{\"summary\":{\"lifetimeTokens\":4567},\"dailyUsageBuckets\":[{\"startDate\":\"2026-08-25\",\"tokens\":1234},{\"startDate\":\"2026-08-26\",\"tokens\":9999}]}";
+                AppDataParser.ParseUsage(new JavaScriptSerializer().DeserializeObject(usageSample), snapshot, officialNow);
+                Assert(snapshot.YesterdayTokens == 1234 && snapshot.LifetimeTokens == 4567, "official UTC yesterday token parsing");
+                string noUsageSample = "{\"dailyUsageBuckets\":[{\"startDate\":\"2026-08-24\",\"tokens\":321}]}";
+                AppDataParser.ParseUsage(new JavaScriptSerializer().DeserializeObject(noUsageSample), snapshot, officialNow);
+                Assert(snapshot.YesterdayTokens == 0, "missing official yesterday means zero usage");
                 using (var owner = new Form())
                 using (var overlay = new OverlayForm())
                 {

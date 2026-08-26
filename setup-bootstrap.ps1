@@ -108,7 +108,7 @@ try {
         Remove-Item -LiteralPath $resolved -Recurse -Force
         exit 0
     }
-    Write-SetupLog 'Prepared v0.6.2 installation'
+    Write-SetupLog 'Prepared v0.6.3 installation'
     exit 0
 } catch {
     Write-SetupLog "ERROR $($_.Exception.Message)"

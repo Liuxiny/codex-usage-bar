@@ -2,7 +2,7 @@
 
 > Windows 版 Codex 用量伴随工具。数据使用 Codex App Server，界面使用独立原生窗口，不再注入 renderer。
 
-![Version](https://img.shields.io/badge/version-0.6.2-blue)
+![Version](https://img.shields.io/badge/version-0.6.3-blue)
 ![Platform](https://img.shields.io/badge/platform-Windows%2010%2F11-lightgrey)
 ![Architecture](https://img.shields.io/badge/arch-x64-lightgrey)
 
@@ -11,7 +11,7 @@
 
 ## 功能
 
-- 只显示 5 小时与周额度；收起态使用圆环，展开态使用双列进度条，并显示昨日 Token 和累计 Token。
+- 只显示 5 小时与周额度；收起态使用圆环，展开态使用双列进度条，并按 Codex 官方 UTC 日界线显示昨日 Token 和累计 Token。
 - 两种悬浮窗模式：
   - **独立展示**：桌面置顶小窗，可拖动并记住位置。
   - **跟随 Codex**：在 Codex 工具栏水平居中并保持在 Codex 上一层；Codex 失焦后继续显示，但可被其他应用正常遮挡。Codex 最小化或窗口丢失时隐藏。
@@ -41,7 +41,7 @@ CodexUsageBar.exe
   └─ WinForms 原生悬浮窗
 ```
 
-0.6.2 不使用 `9335`、CDP、DOM selector、`renderer-inject.js`、UI Automation 取数或高频截图。
+0.6.3 不使用 `9335`、CDP、DOM selector、`renderer-inject.js`、UI Automation 取数或高频截图。
 
 ## 连接与刷新
 
@@ -67,7 +67,7 @@ CodexUsageBar.exe
 
 ## 安装
 
-1. 从 Releases 下载 `CodexUsageBar-Setup-v0.6.2.exe`。
+1. 从 Releases 下载 `CodexUsageBar-Setup-v0.6.3.exe`。
 2. 运行安装器。
 3. 安装完成后托盘出现 Codex Usage Bar 图标。
 4. 左键或右键托盘图标选择展示方式。

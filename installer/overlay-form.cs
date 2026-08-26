@@ -145,7 +145,7 @@ namespace CodexUsageBar
 
         private int ExpandedLineHeight()
         {
-            return Math.Max(18, TextRenderer.MeasureText("Ag中", _smallFont,
+            return Math.Max(18, TextRenderer.MeasureText("Ag中", _smallBoldFont,
                 new Size(Int32.MaxValue, Int32.MaxValue), TextFormatFlags.NoPadding | TextFormatFlags.SingleLine).Height);
         }
 
@@ -155,7 +155,7 @@ namespace CodexUsageBar
             if (windows.Count == 0) return 300;
             int total = 0;
             foreach (int width in NaturalColumnWidths(windows)) total += width;
-            return Math.Max(total, MeasureTextWidth(TokenText(), _smallFont) + 20);
+            return Math.Max(total, TokenFooterWidth() + 20);
         }
 
         private int[] NaturalColumnWidths(List<LimitWindow> windows)
@@ -169,8 +169,8 @@ namespace CodexUsageBar
                 string fullReset = Formatters.ResetTime(window.ResetsAt, _texts.Chinese, false);
                 string label = IsFiveHour(window) ? _texts.FiveHour : _texts.Weekly;
                 int collapsed = 10 + RingOuterDiameter() + 6 + MeasureTextWidth(percent, _boldFont) + 7 + MeasureTextWidth(compactReset, _boldFont) + 10;
-                int detail = 10 + MeasureTextWidth(label, _smallFont) + 8 + MeasureTextWidth(percent, _smallBoldFont) + 10;
-                int reset = 10 + MeasureTextWidth(fullReset, _smallFont) + 10;
+                int detail = 10 + MeasureTextWidth(label, _smallBoldFont) + 8 + MeasureTextWidth(percent, _smallBoldFont) + 10;
+                int reset = 10 + MeasureTextWidth(fullReset, _smallBoldFont) + 10;
                 widths[i] = Math.Max(112, Math.Max(collapsed, Math.Max(detail, reset)));
             }
             return widths;
@@ -202,10 +202,13 @@ namespace CodexUsageBar
             return RingOuterDiameterPixels;
         }
 
-        private string TokenText()
+        private int TokenFooterWidth()
         {
-            return _texts.Yesterday + " " + Formatters.CompactTokens(_snapshot.YesterdayTokens) + "  ·  " +
-                _texts.Lifetime + " " + Formatters.CompactTokens(_snapshot.LifetimeTokens) + " Token";
+            return MeasureTextWidth(_texts.Yesterday + " ", _smallBoldFont) +
+                MeasureTextWidth(Formatters.CompactTokens(_snapshot.YesterdayTokens), _smallBoldFont) +
+                MeasureTextWidth("  ·  " + _texts.Lifetime + " ", _smallBoldFont) +
+                MeasureTextWidth(Formatters.CompactTokens(_snapshot.LifetimeTokens), _smallBoldFont) +
+                MeasureTextWidth(" Token", _smallBoldFont);
         }
 
         private void ClearNativeOwner()
@@ -464,8 +467,8 @@ namespace CodexUsageBar
                 DrawText(graphics, percent, _boldFont, _theme.Accent,
                     new RectangleF(left + 10 + ringOuter + 6, 0, percentWidth, ClientSize.Height), StringAlignment.Near, StringAlignment.Center);
                 DrawText(graphics, Formatters.ResetTime(window.ResetsAt, _texts.Chinese, true), _boldFont,
-                    Blend(_theme.Surface, _theme.Ink, 0.68), new RectangleF(left + 10 + ringOuter + 13 + percentWidth, 1,
-                        columnWidth - 33 - ringOuter - percentWidth, ClientSize.Height - 1), StringAlignment.Near, StringAlignment.Center);
+                    Blend(_theme.Surface, _theme.Ink, 0.68), new RectangleF(left + 10 + ringOuter + 13 + percentWidth, 0,
+                        columnWidth - 33 - ringOuter - percentWidth, ClientSize.Height), StringAlignment.Near, StringAlignment.Center);
                 left += columnWidth;
             }
             if (windows.Count == 2)
@@ -490,13 +493,13 @@ namespace CodexUsageBar
                 LimitWindow window = windows[i];
                 DrawProgress(graphics, new RectangleF(left + 10, barTop, columnWidth - 20, barHeight), window.Remaining);
                 string label = IsFiveHour(window) ? _texts.FiveHour : _texts.Weekly;
-                int labelWidth = MeasureTextWidth(label, _smallFont);
-                DrawText(graphics, label, _smallFont, _theme.Ink,
+                int labelWidth = MeasureTextWidth(label, _smallBoldFont);
+                DrawText(graphics, label, _smallBoldFont, _theme.Ink,
                     new RectangleF(left + 10, detailTop, labelWidth, lineHeight), StringAlignment.Near);
                 DrawText(graphics, Math.Round(window.Remaining, MidpointRounding.AwayFromZero).ToString(CultureInfo.InvariantCulture) + "%",
                     _smallBoldFont, _theme.Accent, new RectangleF(left + 10 + labelWidth + 8, detailTop,
                         columnWidth - 28 - labelWidth, lineHeight), StringAlignment.Near);
-                DrawText(graphics, Formatters.ResetTime(window.ResetsAt, _texts.Chinese, false), _smallFont,
+                DrawText(graphics, Formatters.ResetTime(window.ResetsAt, _texts.Chinese, false), _smallBoldFont,
                     Blend(_theme.Surface, _theme.Ink, 0.70), new RectangleF(left + 10, resetTop, columnWidth - 20, lineHeight), StringAlignment.Near);
                 left += columnWidth;
             }
@@ -508,9 +511,27 @@ namespace CodexUsageBar
             }
             using (var footer = new Pen(Blend(_theme.Surface, _theme.Ink, _theme.Dark ? 0.15 : 0.11), 1f))
                 graphics.DrawLine(footer, 10, footerTop, ClientSize.Width - 10, footerTop);
-            DrawText(graphics, TokenText(), _smallFont, _theme.Ink,
-                new RectangleF(10, footerTop + 7, ClientSize.Width - 20, lineHeight + 10),
+            DrawTokenFooter(graphics, footerTop + 7, lineHeight + 10);
+        }
+
+        private void DrawTokenFooter(Graphics graphics, float top, float height)
+        {
+            Color dateColor = Blend(_theme.Surface, _theme.Ink, 0.70);
+            float left = 10;
+            left = DrawTokenSegment(graphics, _texts.Yesterday + " ", dateColor, left, top, height);
+            left = DrawTokenSegment(graphics, Formatters.CompactTokens(_snapshot.YesterdayTokens), _theme.Accent, left, top, height);
+            left = DrawTokenSegment(graphics, "  ·  " + _texts.Lifetime + " ", dateColor, left, top, height);
+            left = DrawTokenSegment(graphics, Formatters.CompactTokens(_snapshot.LifetimeTokens), _theme.Accent, left, top, height);
+            DrawTokenSegment(graphics, " Token", dateColor, left, top, height);
+        }
+
+        private float DrawTokenSegment(Graphics graphics, string value, Color color, float left, float top, float height)
+        {
+            int width = MeasureTextWidth(value, _smallBoldFont);
+            DrawText(graphics, value, _smallBoldFont, color,
+                new RectangleF(left, top, Math.Min(width, Math.Max(0, ClientSize.Width - 10 - left)), height),
                 StringAlignment.Near, StringAlignment.Center);
+            return left + width;
         }
 
         private bool IsFiveHour(LimitWindow window)
