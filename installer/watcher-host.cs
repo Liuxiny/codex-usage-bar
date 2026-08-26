@@ -13,8 +13,8 @@ using System.Windows.Forms;
 [assembly: AssemblyTitle("Codex Usage Bar")]
 [assembly: AssemblyProduct("Codex Usage Bar")]
 [assembly: AssemblyCompany("Codex Usage Bar")]
-[assembly: AssemblyVersion("0.6.0.0")]
-[assembly: AssemblyFileVersion("0.6.0.0")]
+[assembly: AssemblyVersion("0.6.1.0")]
+[assembly: AssemblyFileVersion("0.6.1.0")]
 
 namespace CodexUsageBar
 {
@@ -44,7 +44,7 @@ namespace CodexUsageBar
 
     internal static class CompanionHost
     {
-        internal const string Version = "0.6.0";
+        internal const string Version = "0.6.1";
         internal const string MutexName = "Local\\CodexUsageBarCompanion";
         internal const string ExitEventName = "Local\\CodexUsageBarExit";
 
@@ -130,6 +130,7 @@ namespace CodexUsageBar
         private readonly ToolStripMenuItem _followLanguageItem;
         private readonly ToolStripMenuItem _chineseLanguageItem;
         private readonly ToolStripMenuItem _englishLanguageItem;
+        private readonly ToolStripMenuItem _startupItem;
         private readonly ToolStripMenuItem _refreshItem;
         private readonly ToolStripMenuItem _exitItem;
         private readonly OverlayForm _overlay;
@@ -196,6 +197,8 @@ namespace CodexUsageBar
             _languageItem.DropDownItems.Add(_followLanguageItem);
             _languageItem.DropDownItems.Add(_chineseLanguageItem);
             _languageItem.DropDownItems.Add(_englishLanguageItem);
+            _startupItem = new ToolStripMenuItem(_texts.StartWithWindows);
+            _startupItem.Click += ToggleStartup;
             _refreshItem = new ToolStripMenuItem(_texts.Refresh);
             _refreshItem.Click += RequestRefresh;
             _exitItem = new ToolStripMenuItem(_texts.Exit);
@@ -208,6 +211,7 @@ namespace CodexUsageBar
             _menu.Items.Add(_showItem);
             _menu.Items.Add(_modeItem);
             _menu.Items.Add(_languageItem);
+            _menu.Items.Add(_startupItem);
             _menu.Items.Add(_refreshItem);
             _menu.Items.Add(new ToolStripSeparator());
             _menu.Items.Add(_exitItem);
@@ -351,6 +355,13 @@ namespace CodexUsageBar
             Log.Write("manual refresh requested");
         }
 
+        private void ToggleStartup(object sender, EventArgs e)
+        {
+            try { StartupRegistration.SetEnabled(!StartupRegistration.IsEnabled()); }
+            catch (Exception ex) { Log.Write("startup toggle failed: " + ex.Message); }
+            UpdateMenu();
+        }
+
         private void SaveIndependentPosition(int x, int y)
         {
             if (_settings.Mode != DisplayMode.Independent) return;
@@ -378,6 +389,8 @@ namespace CodexUsageBar
             _followLanguageItem.Checked = _settings.Language == LanguageMode.FollowCodex;
             _chineseLanguageItem.Checked = _settings.Language == LanguageMode.Chinese;
             _englishLanguageItem.Checked = _settings.Language == LanguageMode.English;
+            _startupItem.Text = _texts.StartWithWindows;
+            _startupItem.Checked = StartupRegistration.IsEnabled();
             _refreshItem.Text = _texts.Refresh;
             _refreshItem.Enabled = _connection != ConnectionKind.Connecting;
             _exitItem.Text = _texts.Exit;

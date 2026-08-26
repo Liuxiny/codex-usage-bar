@@ -1,9 +1,9 @@
-# Codex Usage Bar 0.6.0 Windows 安装说明
+# Codex Usage Bar 0.6.1 Windows 安装说明
 
 ## 安装
 
 1. 完全退出旧版 Codex Usage Bar；安装器也会尝试自动停止它。
-2. 运行 `CodexUsageBar-Setup-v0.6.0.exe`。
+2. 运行 `CodexUsageBar-Setup-v0.6.1.exe`。
 3. 保留“登录 Windows 时启动”可让托盘常驻；不需要时可取消。
 4. 安装结束后启动 Codex。
 
@@ -19,13 +19,14 @@ companion 检测到 Codex 后启动 App Server。连接成功且返回有效额�
 - `展示方式 > 吸附 Codex 窗口`：贴附在 Codex 工具栏；Codex 失焦后保留，但可被其他应用遮挡。
 - `语言`：可选择跟随 Codex、中文或 English。
 - `立即刷新`：立即读取额度和 Token。
+- `开机启动`：开启或关闭当前用户登录后的自动启动。
 - `退出`：退出 companion，不卸载、不删除启动项。
 
 连接失败时悬浮窗强制隐藏，但“显示悬浮窗”偏好不变；连接恢复后自动重新显示。
 
 ## 升级
 
-0.6.0 使用与 0.4.x 相同的安装 AppId，可直接覆盖安装。升级过程会：
+0.6.1 使用与 0.4.x 相同的安装 AppId，可直接覆盖安装。升级过程会：
 
 1. 停止旧 watcher、injector 和新 companion。
 2. 删除旧 CDP engine 与 `9335` 状态文件。

@@ -2,7 +2,7 @@
 
 > Windows 版 Codex 用量伴随工具。数据使用 Codex App Server，界面使用独立原生窗口，不再注入 renderer。
 
-![Version](https://img.shields.io/badge/version-0.6.0-blue)
+![Version](https://img.shields.io/badge/version-0.6.1-blue)
 ![Platform](https://img.shields.io/badge/platform-Windows%2010%2F11-lightgrey)
 ![Architecture](https://img.shields.io/badge/arch-x64-lightgrey)
 
@@ -21,6 +21,7 @@
   - 独立展示或吸附 Codex。
   - 语言：跟随 Codex、中文或 English。
   - 立即刷新。
+  - 开启或关闭开机启动。
   - 退出。
 - App Server 未连接或额度数据无效时自动隐藏悬浮窗；连接恢复后按用户显示偏好自动恢复。
 - 启动先使用内置 Light/Dark 设计 token；读取 `config.toml` 后覆盖主题、表面色、文字色、强调色和 UI 字体。
@@ -39,7 +40,7 @@ CodexUsageBar.exe
   └─ WinForms 原生悬浮窗
 ```
 
-0.6.0 不使用 `9335`、CDP、DOM selector、`renderer-inject.js`、UI Automation 取数或高频截图。
+0.6.1 不使用 `9335`、CDP、DOM selector、`renderer-inject.js`、UI Automation 取数或高频截图。
 
 ## 连接与刷新
 
@@ -65,7 +66,7 @@ CodexUsageBar.exe
 
 ## 安装
 
-1. 从 Releases 下载 `CodexUsageBar-Setup-v0.6.0.exe`。
+1. 从 Releases 下载 `CodexUsageBar-Setup-v0.6.1.exe`。
 2. 运行安装器。
 3. 安装完成后托盘出现 Codex Usage Bar 图标。
 4. 左键或右键托盘图标选择展示方式。

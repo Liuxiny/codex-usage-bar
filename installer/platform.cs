@@ -2,11 +2,42 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Drawing;
+using Microsoft.Win32;
 using System.Runtime.InteropServices;
 using System.Text;
+using System.Windows.Forms;
 
 namespace CodexUsageBar
 {
+    internal static class StartupRegistration
+    {
+        private const string KeyPath = @"Software\Microsoft\Windows\CurrentVersion\Run";
+        private const string ValueName = "Codex Usage Bar";
+
+        internal static bool IsEnabled()
+        {
+            try
+            {
+                using (RegistryKey key = Registry.CurrentUser.OpenSubKey(KeyPath))
+                {
+                    string value = key == null ? null : Convert.ToString(key.GetValue(ValueName));
+                    return !String.IsNullOrWhiteSpace(value) && String.Equals(
+                        value.Trim().Trim('"'), Application.ExecutablePath, StringComparison.OrdinalIgnoreCase);
+                }
+            }
+            catch { return false; }
+        }
+
+        internal static void SetEnabled(bool enabled)
+        {
+            using (RegistryKey key = Registry.CurrentUser.CreateSubKey(KeyPath))
+            {
+                if (enabled) key.SetValue(ValueName, "\"" + Application.ExecutablePath + "\"", RegistryValueKind.String);
+                else key.DeleteValue(ValueName, false);
+            }
+        }
+    }
+
     internal static class NativeMethods
     {
         internal const uint EVENT_SYSTEM_FOREGROUND = 0x0003;

@@ -552,6 +552,7 @@ namespace CodexUsageBar
         internal string EnglishLanguage { get { return "English"; } }
         internal string Independent { get { return Chinese ? "独立展示" : "Independent"; } }
         internal string Attached { get { return Chinese ? "吸附 Codex 窗口" : "Attach to Codex"; } }
+        internal string StartWithWindows { get { return Chinese ? "开机启动" : "Start with Windows"; } }
         internal string Refresh { get { return Chinese ? "立即刷新" : "Refresh now"; } }
         internal string Exit { get { return Chinese ? "退出" : "Exit"; } }
         internal string Remaining { get { return Chinese ? "剩余" : "remaining"; } }
