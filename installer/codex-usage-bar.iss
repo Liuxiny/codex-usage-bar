@@ -29,14 +29,14 @@ SolidCompression=yes
 OutputDir={#OutputDir}
 OutputBaseFilename=CodexUsageBar-Setup-v{#AppVersion}
 SetupIconFile={#StageRoot}\codex-usage-bar.ico
-UninstallDisplayIcon={app}\CodexUsageBar.WatcherHost.exe
+UninstallDisplayIcon={app}\CodexUsageBar.exe
 UninstallDisplayName={#AppName}
 VersionInfoVersion={#AppVersion}.0
 VersionInfoCompany={#AppPublisher}
 VersionInfoDescription={#AppName} installer
 VersionInfoProductName={#AppName}
 VersionInfoProductVersion={#AppVersion}
-CloseApplications=no
+CloseApplications=yes
 RestartApplications=no
 RestartIfNeededByRun=no
 UsePreviousTasks=yes
@@ -47,29 +47,32 @@ MinVersion=10.0
 Name: "startup"; Description: "Keep Codex Usage Bar active when I sign in"; GroupDescription: "Background integration:"; Flags: checkedonce
 
 [Files]
-; Bootstrap from a temporary payload before Inno commits installed application files.
+; Stop legacy CDP builds before Inno replaces their files.
 Source: "{#StageRoot}\setup-bootstrap.ps1"; DestDir: "{tmp}"; Flags: dontcopy noencryption
-Source: "{#StageRoot}\payload\*"; DestDir: "{tmp}\payload"; Flags: dontcopy noencryption recursesubdirs createallsubdirs
 Source: "{#StageRoot}\setup-bootstrap.ps1"; DestDir: "{app}"; Flags: ignoreversion
-Source: "{#StageRoot}\CodexUsageBar.WatcherHost.exe"; DestDir: "{app}"; Flags: ignoreversion
+Source: "{#StageRoot}\CodexUsageBar.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#StageRoot}\codex-usage-bar.ico"; DestDir: "{app}"; Flags: ignoreversion
-Source: "{#StageRoot}\payload\*"; DestDir: "{app}\payload"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "{#StageRoot}\VERSION"; DestDir: "{app}"; Flags: ignoreversion
+Source: "{#StageRoot}\README.md"; DestDir: "{app}"; Flags: ignoreversion
+Source: "{#StageRoot}\INSTALL-WINDOWS.md"; DestDir: "{app}"; Flags: ignoreversion
+Source: "{#StageRoot}\CODEX-THEME-SPEC.md"; DestDir: "{app}"; Flags: ignoreversion
+Source: "{#StageRoot}\LICENSE"; DestDir: "{app}"; Flags: ignoreversion
 
 [InstallDelete]
 ; Remove the v0.4.13 Startup shortcut that launched hidden PowerShell.
 Type: files; Name: "{userstartup}\Codex Usage Bar.lnk"
+; Remove v0.4.x CDP payload and watcher after the bootstrap has stopped them.
+Type: files; Name: "{app}\CodexUsageBar.WatcherHost.exe"
+Type: filesandordirs; Name: "{app}\payload"
 
 [Icons]
-Name: "{group}\Codex Usage Bar"; Filename: "{app}\CodexUsageBar.WatcherHost.exe"; WorkingDir: "{app}"; IconFilename: "{app}\CodexUsageBar.WatcherHost.exe"
+Name: "{group}\Codex Usage Bar"; Filename: "{app}\CodexUsageBar.exe"; WorkingDir: "{app}"; IconFilename: "{app}\CodexUsageBar.exe"
 
 [Registry]
-; Use the normal per-user Run key with a native host. v0.4.13 used a Startup
-; shortcut whose target was hidden powershell.exe; that pattern is intentionally
-; removed because AV products commonly classify it as suspicious persistence.
-Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: string; ValueName: "Codex Usage Bar"; ValueData: """{app}\CodexUsageBar.WatcherHost.exe"""; Flags: uninsdeletevalue; Tasks: startup
+Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: string; ValueName: "Codex Usage Bar"; ValueData: """{app}\CodexUsageBar.exe"""; Flags: uninsdeletevalue; Tasks: startup
 
 [Run]
-Filename: "{app}\CodexUsageBar.WatcherHost.exe"; WorkingDir: "{app}"; Description: "Start Codex Usage Bar"; Flags: nowait postinstall skipifsilent
+Filename: "{app}\CodexUsageBar.exe"; WorkingDir: "{app}"; Description: "Start Codex Usage Bar"; Flags: nowait postinstall skipifsilent
 
 [Code]
 function BootstrapArguments(const ScriptPath: String; const Action: String; const Silent: Boolean): String;
@@ -100,7 +103,6 @@ begin
     exit;
 
   ExtractTemporaryFiles('{tmp}\setup-bootstrap.ps1');
-  ExtractTemporaryFiles('{tmp}\payload\*');
   TemporaryBootstrap := ExpandConstant('{tmp}\setup-bootstrap.ps1');
   if not RunBootstrap(TemporaryBootstrap, '-Install', WizardSilent, ExitCode) then
     RaiseException('Codex Usage Bar initialization could not be started.');

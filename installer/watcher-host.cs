@@ -2,694 +2,780 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Drawing;
+using System.Globalization;
 using System.IO;
-using System.Management;
+using System.Reflection;
 using System.Text;
-using System.Text.RegularExpressions;
 using System.Threading;
 using System.Web.Script.Serialization;
 using System.Windows.Forms;
 
-[assembly: System.Reflection.AssemblyTitle("Codex Usage Bar Watcher Host")]
-[assembly: System.Reflection.AssemblyProduct("Codex Usage Bar")]
-[assembly: System.Reflection.AssemblyCompany("Codex Usage Bar")]
-[assembly: System.Reflection.AssemblyVersion("0.4.16.0")]
-[assembly: System.Reflection.AssemblyFileVersion("0.4.16.0")]
+[assembly: AssemblyTitle("Codex Usage Bar")]
+[assembly: AssemblyProduct("Codex Usage Bar")]
+[assembly: AssemblyCompany("Codex Usage Bar")]
+[assembly: AssemblyVersion("0.6.0.0")]
+[assembly: AssemblyFileVersion("0.6.0.0")]
 
 namespace CodexUsageBar
 {
-    internal static class WatcherHost
+    internal static class Log
     {
-        private const string Version = "0.4.16";
-        private static readonly string StateRoot = Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-            "CodexUsageBar");
-        private static readonly string EngineScript = Path.Combine(StateRoot, "engine", "codex-usage-bar.ps1");
-        private static readonly string InstallState = Path.Combine(StateRoot, "install.json");
-        private static readonly string InjectorState = Path.Combine(StateRoot, "state.json");
-        private static readonly string HostState = Path.Combine(StateRoot, "watcher-host.json");
-        private static readonly string FuseState = Path.Combine(StateRoot, "watcher-fuse.json");
-        private static readonly string RefreshRequest = Path.Combine(StateRoot, "refresh.request");
-        private static readonly string CurrentLocaleFile = Path.Combine(StateRoot, "locale.current");
-        private static readonly string UserLocaleDir = Path.Combine(StateRoot, "locales");
-        private static readonly string EngineLocaleDir = Path.Combine(StateRoot, "engine", "locales");
-        private static readonly string LogPath = Path.Combine(StateRoot, "watcher-host.log");
-        private static readonly HashSet<int> HandledPids = new HashSet<int>();
         private static readonly object Gate = new object();
-        private static readonly ManualResetEvent StopRequested = new ManualResetEvent(false);
-        private static readonly AutoResetEvent Wake = new AutoResetEvent(false);
-        private static bool _fused;
-        private static int _attachInProgress;
-        private static int _refreshInProgress;
+        internal static bool Disabled;
+        internal static string PathValue;
+
+        internal static void Write(string message)
+        {
+            if (Disabled || String.IsNullOrEmpty(PathValue)) return;
+            try
+            {
+                lock (Gate)
+                {
+                    string directory = Path.GetDirectoryName(PathValue);
+                    Directory.CreateDirectory(directory);
+                    if (File.Exists(PathValue) && new FileInfo(PathValue).Length > 1024 * 1024)
+                        File.WriteAllText(PathValue, String.Empty, new UTF8Encoding(false));
+                    File.AppendAllText(PathValue, DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss.fff", CultureInfo.InvariantCulture) + " " + message + Environment.NewLine, Encoding.UTF8);
+                }
+            }
+            catch { }
+        }
+    }
+
+    internal static class CompanionHost
+    {
+        internal const string Version = "0.6.0";
+        internal const string MutexName = "Local\\CodexUsageBarCompanion";
+        internal const string ExitEventName = "Local\\CodexUsageBarExit";
 
         [STAThread]
-        private static int Main()
+        private static int Main(string[] arguments)
         {
-            Directory.CreateDirectory(StateRoot);
-            bool createdNew;
-            using (var mutex = new Mutex(true, "Local\\CodexUsageBarWatcherHost", out createdNew))
+            if (HasArgument(arguments, "--self-test")) return SelfTests.Run();
+            if (HasArgument(arguments, "--exit")) return SignalExit();
+
+            string stateRoot = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "CodexUsageBar");
+            Log.PathValue = Path.Combine(stateRoot, "companion.log");
+            Directory.CreateDirectory(stateRoot);
+            TryEnablePerMonitorDpi();
+
+            bool created;
+            using (var mutex = new Mutex(true, MutexName, out created))
             {
-                if (!createdNew)
+                if (!created)
                 {
-                    Log("watcher host already running; duplicate instance exiting");
+                    Log.Write("duplicate companion instance ignored");
                     return 0;
                 }
-
-                WriteHostState();
-                _fused = File.Exists(FuseState);
-                Log("watcher host active pid=" + Process.GetCurrentProcess().Id + " fused=" + _fused);
-
                 Application.EnableVisualStyles();
                 Application.SetCompatibleTextRenderingDefault(false);
-
-                Thread watcherThread = null;
-                TrayApplicationContext context = null;
                 try
                 {
-                    context = new TrayApplicationContext();
-                    watcherThread = new Thread(WatchLoop);
-                    watcherThread.Name = "Codex Usage Bar Watcher";
-                    watcherThread.IsBackground = true;
-                    watcherThread.Start();
-                    Application.Run(context);
+                    using (var context = new CompanionContext(stateRoot)) Application.Run(context);
                     return 0;
                 }
                 catch (Exception ex)
                 {
-                    Log("watcher host fatal error: " + ex);
+                    Log.Write("fatal: " + ex);
                     return 1;
                 }
                 finally
                 {
-                    StopRequested.Set();
-                    Wake.Set();
-                    if (watcherThread != null && watcherThread.IsAlive)
-                    {
-                        try { watcherThread.Join(5000); } catch { }
-                    }
-                    if (context != null)
-                    {
-                        try { context.Dispose(); } catch { }
-                    }
-                    try { File.Delete(HostState); } catch { }
                     try { mutex.ReleaseMutex(); } catch { }
                 }
             }
         }
 
-        private static string NormalizeLocaleCode(string value)
+        private static bool HasArgument(string[] arguments, string expected)
         {
-            return (value ?? string.Empty).Trim().Replace('_', '-').ToLowerInvariant();
+            foreach (string argument in arguments)
+                if (String.Equals(argument, expected, StringComparison.OrdinalIgnoreCase)) return true;
+            return false;
         }
 
-        private static string ReadDocumentLocale()
+        private static int SignalExit()
         {
             try
             {
-                if (!File.Exists(CurrentLocaleFile)) return string.Empty;
-                return (File.ReadAllText(CurrentLocaleFile, Encoding.UTF8) ?? string.Empty).Trim();
+                using (EventWaitHandle signal = EventWaitHandle.OpenExisting(ExitEventName)) signal.Set();
+                return 0;
             }
-            catch { return string.Empty; }
+            catch { return 0; }
         }
 
-        private static string ResolveLocaleCode(string raw)
+        private static void TryEnablePerMonitorDpi()
         {
-            string code = NormalizeLocaleCode(raw);
-            if (code == "zh" || code.StartsWith("zh-", StringComparison.Ordinal)) return "zh";
-            if (!string.IsNullOrEmpty(code) && FindLocaleFile(code) != null) return code;
-            int dash = code.IndexOf('-');
-            string primary = dash > 0 ? code.Substring(0, dash) : code;
-            if (!string.IsNullOrEmpty(primary) && FindLocaleFile(primary) != null) return primary;
-            return "en";
+            try { NativeMethods.SetProcessDpiAwarenessContext(new IntPtr(-4)); }
+            catch { }
+        }
+    }
+
+    internal sealed class CompanionContext : ApplicationContext
+    {
+        private readonly string _settingsPath;
+        private readonly string _hostStatePath;
+        private readonly string _configPath;
+        private readonly AppSettings _settings;
+        private Texts _texts;
+        private readonly Control _dispatcher;
+        private readonly NotifyIcon _tray;
+        private readonly ContextMenuStrip _menu;
+        private readonly ToolStripMenuItem _connectionItem;
+        private readonly ToolStripMenuItem _connectionDetailItem;
+        private readonly ToolStripMenuItem _showItem;
+        private readonly ToolStripMenuItem _modeItem;
+        private readonly ToolStripMenuItem _independentItem;
+        private readonly ToolStripMenuItem _attachedItem;
+        private readonly ToolStripMenuItem _languageItem;
+        private readonly ToolStripMenuItem _followLanguageItem;
+        private readonly ToolStripMenuItem _chineseLanguageItem;
+        private readonly ToolStripMenuItem _englishLanguageItem;
+        private readonly ToolStripMenuItem _refreshItem;
+        private readonly ToolStripMenuItem _exitItem;
+        private readonly OverlayForm _overlay;
+        private readonly System.Windows.Forms.Timer _presentationTimer;
+        private readonly System.Windows.Forms.Timer _themeDebounce;
+        private readonly AutoResetEvent _workerWake = new AutoResetEvent(false);
+        private readonly ManualResetEvent _stop = new ManualResetEvent(false);
+        private readonly EventWaitHandle _exitSignal;
+        private readonly RegisteredWaitHandle _exitRegistration;
+        private readonly WindowEventMonitor _windowEvents;
+        private readonly FileSystemWatcher _themeWatcher;
+        private Thread _worker;
+        private AppServerClient _client;
+        private ThemeSet _themes;
+        private UsageSnapshot _snapshot = new UsageSnapshot();
+        private ConnectionKind _connection = ConnectionKind.NoCodex;
+        private string _connectionDetail = String.Empty;
+        private IntPtr _codexWindow = IntPtr.Zero;
+        private int _manualRefresh;
+        private int _rateUpdatePending;
+        private int _exiting;
+        private string _presentationState = String.Empty;
+
+        internal CompanionContext(string stateRoot)
+        {
+            _settingsPath = Path.Combine(stateRoot, "settings.json");
+            _hostStatePath = Path.Combine(stateRoot, "companion-state.json");
+            string codexHome = Environment.GetEnvironmentVariable("CODEX_HOME");
+            if (String.IsNullOrWhiteSpace(codexHome)) codexHome = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".codex");
+            _configPath = Path.Combine(codexHome, "config.toml");
+            _settings = AppSettings.Load(_settingsPath);
+            _themes = ThemeReader.Load(_configPath);
+            _texts = Texts.Resolve(_settings.Language, _themes.Language);
+
+            _dispatcher = new Control();
+            _dispatcher.CreateControl();
+            _overlay = new OverlayForm();
+            _overlay.ApplyTexts(_texts);
+            _overlay.ApplyTheme(_themes.Active);
+            _overlay.SetMode(_settings.Mode);
+            _overlay.OverlaySizeChanged += RefreshPresentation;
+            _overlay.IndependentPositionChanged += SaveIndependentPosition;
+
+            _connectionItem = new ToolStripMenuItem();
+            _connectionItem.Enabled = false;
+            _connectionDetailItem = new ToolStripMenuItem();
+            _connectionDetailItem.Enabled = false;
+            _showItem = new ToolStripMenuItem(_texts.ShowWindow);
+            _showItem.Click += ToggleVisibility;
+            _modeItem = new ToolStripMenuItem(_texts.DisplayMode);
+            _independentItem = new ToolStripMenuItem(_texts.Independent);
+            _attachedItem = new ToolStripMenuItem(_texts.Attached);
+            _independentItem.Click += delegate { SetDisplayMode(DisplayMode.Independent); };
+            _attachedItem.Click += delegate { SetDisplayMode(DisplayMode.Attached); };
+            _modeItem.DropDownItems.Add(_independentItem);
+            _modeItem.DropDownItems.Add(_attachedItem);
+            _languageItem = new ToolStripMenuItem(_texts.Language);
+            _followLanguageItem = new ToolStripMenuItem(_texts.FollowCodex);
+            _chineseLanguageItem = new ToolStripMenuItem(_texts.ChineseLanguage);
+            _englishLanguageItem = new ToolStripMenuItem(_texts.EnglishLanguage);
+            _followLanguageItem.Click += delegate { SetLanguageMode(LanguageMode.FollowCodex); };
+            _chineseLanguageItem.Click += delegate { SetLanguageMode(LanguageMode.Chinese); };
+            _englishLanguageItem.Click += delegate { SetLanguageMode(LanguageMode.English); };
+            _languageItem.DropDownItems.Add(_followLanguageItem);
+            _languageItem.DropDownItems.Add(_chineseLanguageItem);
+            _languageItem.DropDownItems.Add(_englishLanguageItem);
+            _refreshItem = new ToolStripMenuItem(_texts.Refresh);
+            _refreshItem.Click += RequestRefresh;
+            _exitItem = new ToolStripMenuItem(_texts.Exit);
+            _exitItem.Click += delegate { BeginExit(); };
+
+            _menu = new ContextMenuStrip();
+            _menu.Items.Add(_connectionItem);
+            _menu.Items.Add(_connectionDetailItem);
+            _menu.Items.Add(new ToolStripSeparator());
+            _menu.Items.Add(_showItem);
+            _menu.Items.Add(_modeItem);
+            _menu.Items.Add(_languageItem);
+            _menu.Items.Add(_refreshItem);
+            _menu.Items.Add(new ToolStripSeparator());
+            _menu.Items.Add(_exitItem);
+            _menu.Opening += delegate { UpdateMenu(); };
+
+            Icon icon = null;
+            try { icon = Icon.ExtractAssociatedIcon(Application.ExecutablePath); } catch { }
+            if (icon == null) icon = SystemIcons.Application;
+            _tray = new NotifyIcon();
+            _tray.Icon = icon;
+            _tray.Text = "Codex Usage Bar";
+            _tray.ContextMenuStrip = _menu;
+            _tray.Visible = true;
+            _tray.MouseUp += OnTrayMouseUp;
+
+            _presentationTimer = new System.Windows.Forms.Timer();
+            _presentationTimer.Interval = 5000;
+            _presentationTimer.Tick += delegate { RefreshPresentation(); };
+            _presentationTimer.Start();
+
+            _themeDebounce = new System.Windows.Forms.Timer();
+            _themeDebounce.Interval = 350;
+            _themeDebounce.Tick += delegate
+            {
+                _themeDebounce.Stop();
+                ReloadTheme();
+            };
+
+            _themeWatcher = CreateThemeWatcher();
+            _windowEvents = new WindowEventMonitor(PostPresentationRefresh);
+            bool created;
+            _exitSignal = new EventWaitHandle(false, EventResetMode.AutoReset, CompanionHost.ExitEventName, out created);
+            _exitRegistration = ThreadPool.RegisterWaitForSingleObject(_exitSignal, delegate(object state, bool timedOut) { PostExit(); }, null, Timeout.Infinite, true);
+
+            WriteHostState();
+            UpdateMenu();
+            _worker = new Thread(new ThreadStart(delegate
+            {
+                try { ConnectionWorker(); }
+                catch (Exception ex)
+                {
+                    Log.Write("connection worker stopped: " + ex);
+                    PostConnection(ConnectionKind.Failed, _texts.InterfaceUnavailable, new UsageSnapshot());
+                }
+            }));
+            _worker.IsBackground = true;
+            _worker.Name = "Codex Usage Bar App Server";
+            _worker.Start();
+            Log.Write("companion active v" + CompanionHost.Version + " mode=" + _settings.Mode + " visible=" + _settings.Visible);
         }
 
-        private static string FindLocaleFile(string code)
+        private FileSystemWatcher CreateThemeWatcher()
         {
-            if (string.IsNullOrWhiteSpace(code)) return null;
-            string name = NormalizeLocaleCode(code) + ".json";
-            string user = Path.Combine(UserLocaleDir, name);
-            if (File.Exists(user)) return user;
-            string engine = Path.Combine(EngineLocaleDir, name);
-            if (File.Exists(engine)) return engine;
-            return null;
-        }
-
-        private static Dictionary<string, object> TryLoadLocaleCatalogFile(string file)
-        {
-            if (string.IsNullOrEmpty(file) || !File.Exists(file)) return null;
             try
             {
-                var serializer = new JavaScriptSerializer();
-                object parsed = serializer.DeserializeObject(File.ReadAllText(file, Encoding.UTF8));
-                return parsed as Dictionary<string, object>;
+                string directory = Path.GetDirectoryName(_configPath);
+                if (!Directory.Exists(directory)) return null;
+                var watcher = new FileSystemWatcher(directory, Path.GetFileName(_configPath));
+                watcher.NotifyFilter = NotifyFilters.LastWrite | NotifyFilters.FileName | NotifyFilters.Size;
+                FileSystemEventHandler changed = delegate { PostThemeReload(); };
+                RenamedEventHandler renamed = delegate { PostThemeReload(); };
+                watcher.Changed += changed;
+                watcher.Created += changed;
+                watcher.Deleted += changed;
+                watcher.Renamed += renamed;
+                watcher.EnableRaisingEvents = true;
+                return watcher;
             }
             catch (Exception ex)
             {
-                Log("locale catalog ignored (" + file + "): " + ex.Message);
+                Log.Write("config watcher unavailable: " + ex.Message);
                 return null;
             }
         }
 
-        private static Dictionary<string, object> LoadLocaleCatalog(string code)
+        private void PostThemeReload()
         {
-            string normalized = NormalizeLocaleCode(code);
-            var candidates = new List<string>();
-            if (!string.IsNullOrEmpty(normalized))
-            {
-                candidates.Add(Path.Combine(UserLocaleDir, normalized + ".json"));
-                candidates.Add(Path.Combine(EngineLocaleDir, normalized + ".json"));
-            }
-            if (!string.Equals(normalized, "en", StringComparison.OrdinalIgnoreCase))
-            {
-                candidates.Add(Path.Combine(UserLocaleDir, "en.json"));
-                candidates.Add(Path.Combine(EngineLocaleDir, "en.json"));
-            }
-            foreach (string file in candidates)
-            {
-                var catalog = TryLoadLocaleCatalogFile(file);
-                if (catalog != null) return catalog;
-            }
-            return new Dictionary<string, object>(StringComparer.OrdinalIgnoreCase);
+            try { _dispatcher.BeginInvoke((MethodInvoker)delegate { _themeDebounce.Stop(); _themeDebounce.Start(); }); }
+            catch { }
         }
 
-        private static string LocaleMessage(Dictionary<string, object> catalog, string path, string fallback)
+        private void ReloadTheme()
         {
-            object current = catalog;
-            foreach (string part in path.Split('.'))
-            {
-                var map = current as Dictionary<string, object>;
-                if (map == null || !map.TryGetValue(part, out current)) return fallback;
-            }
-            return current as string ?? fallback;
+            _themes = ThemeReader.Load(_configPath);
+            _overlay.ApplyTheme(_themes.Active);
+            if (_settings.Language == LanguageMode.FollowCodex) ApplyLanguage();
+            RefreshPresentation();
+            Log.Write("config reloaded appearance=" + _themes.Appearance + " language=" + (_themes.Language.Length == 0 ? "system" : _themes.Language));
         }
 
-        private sealed class TrayApplicationContext : ApplicationContext
+        private void OnTrayMouseUp(object sender, MouseEventArgs e)
         {
-            private readonly NotifyIcon _tray;
-            private readonly ContextMenuStrip _menu;
-            private readonly ToolStripMenuItem _refreshItem;
-            private readonly ToolStripMenuItem _exitItem;
-            private readonly Control _dispatcher;
-            private readonly System.Windows.Forms.Timer _localeTimer;
-            private string _localeCode = string.Empty;
-            private int _exiting;
+            if (e.Button != MouseButtons.Left) return;
+            UpdateMenu();
+            _menu.Show(Cursor.Position);
+            _menu.Focus();
+        }
 
-            internal TrayApplicationContext()
+        private void ToggleVisibility(object sender, EventArgs e)
+        {
+            _settings.Visible = !_settings.Visible;
+            _settings.Save(_settingsPath);
+            RefreshPresentation();
+            UpdateMenu();
+        }
+
+        private void SetDisplayMode(DisplayMode mode)
+        {
+            if (_settings.Mode == mode) return;
+            _settings.Mode = mode;
+            _overlay.SetMode(mode);
+            _settings.Save(_settingsPath);
+            RefreshPresentation();
+            UpdateMenu();
+            Log.Write("display mode=" + mode);
+        }
+
+        private void SetLanguageMode(LanguageMode mode)
+        {
+            if (_settings.Language == mode) return;
+            _settings.Language = mode;
+            _settings.Save(_settingsPath);
+            ApplyLanguage();
+            Log.Write("language mode=" + mode + " resolved=" + (_texts.Chinese ? "zh" : "en"));
+        }
+
+        private void ApplyLanguage()
+        {
+            _texts = Texts.Resolve(_settings.Language, _themes.Language);
+            _overlay.ApplyTexts(_texts);
+            if (_connection == ConnectionKind.Connected && _snapshot.DisplayWindows.Count == 0) _connectionDetail = _texts.NoData;
+            UpdateMenu();
+            UpdateTrayText();
+            RefreshPresentation();
+        }
+
+        private void RequestRefresh(object sender, EventArgs e)
+        {
+            Interlocked.Exchange(ref _manualRefresh, 1);
+            _workerWake.Set();
+            Log.Write("manual refresh requested");
+        }
+
+        private void SaveIndependentPosition(int x, int y)
+        {
+            if (_settings.Mode != DisplayMode.Independent) return;
+            _settings.IndependentX = x;
+            _settings.IndependentY = y;
+            _settings.Save(_settingsPath);
+        }
+
+        private void UpdateMenu()
+        {
+            _connectionItem.Text = _texts.Connection(_connection);
+            _connectionDetailItem.Visible = !String.IsNullOrEmpty(_connectionDetail);
+            _connectionDetailItem.Text = _connectionDetail;
+            _showItem.Text = _texts.ShowWindow;
+            _showItem.Checked = _settings.Visible;
+            _modeItem.Text = _texts.DisplayMode;
+            _independentItem.Text = _texts.Independent;
+            _attachedItem.Text = _texts.Attached;
+            _independentItem.Checked = _settings.Mode == DisplayMode.Independent;
+            _attachedItem.Checked = _settings.Mode == DisplayMode.Attached;
+            _languageItem.Text = _texts.Language;
+            _followLanguageItem.Text = _texts.FollowCodex;
+            _chineseLanguageItem.Text = _texts.ChineseLanguage;
+            _englishLanguageItem.Text = _texts.EnglishLanguage;
+            _followLanguageItem.Checked = _settings.Language == LanguageMode.FollowCodex;
+            _chineseLanguageItem.Checked = _settings.Language == LanguageMode.Chinese;
+            _englishLanguageItem.Checked = _settings.Language == LanguageMode.English;
+            _refreshItem.Text = _texts.Refresh;
+            _refreshItem.Enabled = _connection != ConnectionKind.Connecting;
+            _exitItem.Text = _texts.Exit;
+        }
+
+        private void SetConnectionUi(ConnectionKind kind, string detail, UsageSnapshot snapshot)
+        {
+            _connection = kind;
+            _connectionDetail = detail ?? String.Empty;
+            if (snapshot != null)
             {
-                _dispatcher = new Control();
-                _dispatcher.CreateControl();
+                _snapshot = snapshot;
+                _overlay.ApplySnapshot(snapshot);
+            }
+            UpdateMenu();
+            UpdateTrayText();
+            RefreshPresentation();
+        }
 
-                _refreshItem = new ToolStripMenuItem("Refresh");
-                _exitItem = new ToolStripMenuItem("Exit");
-                _refreshItem.Click += OnRefresh;
-                _exitItem.Click += OnExit;
+        private void UpdateTrayText()
+        {
+            string text = "Codex Usage Bar · " + (_connection == ConnectionKind.Connected ? (_texts.Chinese ? "已连接" : "Connected") : (_texts.Chinese ? "未连接" : "Disconnected"));
+            LimitWindow tightest = _snapshot.Tightest;
+            if (_connection == ConnectionKind.Connected && tightest != null)
+                text += " · " + Math.Round(tightest.Remaining, MidpointRounding.AwayFromZero).ToString(CultureInfo.InvariantCulture) + "%";
+            if (text.Length > 63) text = text.Substring(0, 63);
+            try { _tray.Text = text; } catch { }
+        }
 
-                _menu = new ContextMenuStrip();
-                _menu.Items.Add(_refreshItem);
-                _menu.Items.Add(new ToolStripSeparator());
-                _menu.Items.Add(_exitItem);
+        private void PostConnection(ConnectionKind kind, string detail, UsageSnapshot snapshot)
+        {
+            try { _dispatcher.BeginInvoke((MethodInvoker)delegate { SetConnectionUi(kind, detail, snapshot); }); }
+            catch { }
+        }
 
-                Icon icon = null;
-                try { icon = Icon.ExtractAssociatedIcon(Application.ExecutablePath); } catch { }
-                if (icon == null) icon = SystemIcons.Application;
-
-                _tray = new NotifyIcon();
-                _tray.Icon = icon;
-                _tray.Text = "Codex Usage Bar";
-                _tray.ContextMenuStrip = _menu;
-                _tray.Visible = true;
-                _tray.DoubleClick += OnRefresh;
-
-                ApplyLocale(true);
-                _localeTimer = new System.Windows.Forms.Timer();
-                _localeTimer.Interval = 1000;
-                _localeTimer.Tick += delegate { ApplyLocale(false); };
-                _localeTimer.Start();
-                Log("tray icon active locale=" + _localeCode);
+        private void RefreshPresentation()
+        {
+            bool dataReady = _connection == ConnectionKind.Connected && _snapshot != null && _snapshot.DisplayWindows.Count > 0;
+            if (!_settings.Visible || !dataReady)
+            {
+                HideOverlay(!_settings.Visible ? "user-hidden" : "connection-or-data-unavailable");
+                return;
+            }
+            if (_settings.Mode == DisplayMode.Independent)
+            {
+                PositionIndependent();
+                ShowOverlay("independent");
+                return;
             }
 
-            private void ApplyLocale(bool force)
+            bool codexForeground = CodexLocator.IsForegroundCodex();
+            IntPtr next = CodexLocator.FindBestWindow();
+            if (next != IntPtr.Zero) _codexWindow = next;
+            Rectangle client;
+            if (!CodexLocator.TryClientBounds(_codexWindow, out client))
             {
-                string next = ResolveLocaleCode(ReadDocumentLocale());
-                if (!force && string.Equals(next, _localeCode, StringComparison.OrdinalIgnoreCase)) return;
-                _localeCode = next;
-                var catalog = LoadLocaleCatalog(next);
-                _refreshItem.Text = LocaleMessage(catalog, "tray.refresh", "Refresh");
-                _exitItem.Text = LocaleMessage(catalog, "tray.exit", "Exit");
+                HideOverlay("codex-window-unavailable");
+                return;
             }
+            int x = client.Left + Math.Max(0, (client.Width - _overlay.Width) / 2);
+            int y = client.Top + Math.Max(0, (OverlayForm.ToolbarHeight - Math.Min(_overlay.Height, OverlayForm.ToolbarHeight)) / 2);
+            _overlay.SetProgrammaticLocation(x, y);
+            _overlay.BringAboveCodex(_codexWindow, false);
+            ShowOverlay(codexForeground ? "attached-active" : "attached-background");
+            if (codexForeground) _overlay.BringAboveCodex(_codexWindow, true);
+        }
 
-            private void OnRefresh(object sender, EventArgs e)
+        private void ShowOverlay(string state)
+        {
+            if (!_overlay.Visible) _overlay.Show();
+            NotePresentation("shown:" + state);
+        }
+
+        private void HideOverlay(string reason)
+        {
+            if (_overlay.Visible) _overlay.Hide();
+            NotePresentation("hidden:" + reason);
+        }
+
+        private void NotePresentation(string state)
+        {
+            if (String.Equals(_presentationState, state, StringComparison.Ordinal)) return;
+            _presentationState = state;
+            Log.Write("overlay " + state);
+        }
+
+        private void PositionIndependent()
+        {
+            Point desired;
+            if (_settings.IndependentX == Int32.MinValue || _settings.IndependentY == Int32.MinValue)
             {
-                ApplyLocale(true);
-                if (Interlocked.CompareExchange(ref _refreshInProgress, 1, 0) != 0) return;
-                ThreadPool.QueueUserWorkItem(delegate
+                Rectangle work = Screen.PrimaryScreen.WorkingArea;
+                desired = new Point(work.Right - _overlay.Width - 16, work.Bottom - _overlay.Height - 16);
+            }
+            else desired = new Point(_settings.IndependentX, _settings.IndependentY);
+            Rectangle nearest = Screen.FromPoint(desired).WorkingArea;
+            int x = Math.Max(nearest.Left, Math.Min(desired.X, nearest.Right - _overlay.Width));
+            int y = Math.Max(nearest.Top, Math.Min(desired.Y, nearest.Bottom - _overlay.Height));
+            _overlay.SetProgrammaticLocation(x, y);
+        }
+
+        private void PostPresentationRefresh()
+        {
+            try { _dispatcher.BeginInvoke((MethodInvoker)RefreshPresentation); }
+            catch { }
+        }
+
+        private void ConnectionWorker()
+        {
+            int failures = 0;
+            DateTime nextRate = DateTime.MinValue;
+            DateTime nextUsage = DateTime.MinValue;
+            UsageSnapshot snapshot = new UsageSnapshot();
+            while (!_stop.WaitOne(0))
+            {
+                if (!CodexLocator.HasRunningProcess())
                 {
+                    StopClient();
+                    snapshot = new UsageSnapshot();
+                    PostConnection(ConnectionKind.NoCodex, String.Empty, snapshot);
+                    failures = 0;
+                    WaitWorker(3000);
+                    continue;
+                }
+
+                if (_client == null || !_client.IsAlive)
+                {
+                    StopClient();
+                    PostConnection(ConnectionKind.Connecting, String.Empty, null);
+                    string error;
+                    if (!TryConnect(out error))
+                    {
+                        failures++;
+                        PostConnection(ConnectionKind.Failed, FriendlyError(error), new UsageSnapshot());
+                        WaitWorker(RetryDelayMs(failures));
+                        continue;
+                    }
+                    failures = 0;
                     try
                     {
-                        RequestManualRefresh();
-                    }
-                    finally
-                    {
-                        Interlocked.Exchange(ref _refreshInProgress, 0);
-                    }
-                });
-            }
-
-            private void OnExit(object sender, EventArgs e)
-            {
-                if (Interlocked.Exchange(ref _exiting, 1) != 0) return;
-                _refreshItem.Enabled = false;
-                _exitItem.Enabled = false;
-                _tray.Visible = false;
-                StopRequested.Set();
-                Wake.Set();
-                Log("tray exit requested");
-
-                ThreadPool.QueueUserWorkItem(delegate
-                {
-                    try
-                    {
-                        StopLiveUsageBar();
+                        snapshot = RefreshRate(new UsageSnapshot());
+                        try { snapshot = RefreshUsage(snapshot); } catch (Exception ex) { Log.Write("initial usage read failed: " + ex.Message); }
+                        string detail = snapshot.Windows.Count == 0 ? _texts.NoData : String.Empty;
+                        PostConnection(ConnectionKind.Connected, detail, snapshot);
+                        nextRate = DateTime.UtcNow.AddMinutes(2);
+                        nextUsage = DateTime.UtcNow.AddMinutes(10);
                     }
                     catch (Exception ex)
                     {
-                        Log("tray exit cleanup failed: " + ex.Message);
+                        Log.Write("initial interface validation failed: " + ex.Message);
+                        StopClient();
+                        failures++;
+                        PostConnection(ConnectionKind.Failed, FriendlyError(ex.Message), new UsageSnapshot());
+                        WaitWorker(RetryDelayMs(failures));
+                        continue;
                     }
-                    finally
-                    {
-                        try
-                        {
-                            _dispatcher.BeginInvoke((MethodInvoker)delegate { ExitThread(); });
-                        }
-                        catch
-                        {
-                            try { Application.Exit(); } catch { }
-                        }
-                    }
-                });
-            }
-
-            protected override void Dispose(bool disposing)
-            {
-                if (disposing)
-                {
-                    try { _localeTimer.Stop(); } catch { }
-                    try { _localeTimer.Dispose(); } catch { }
-                    try { _tray.Visible = false; } catch { }
-                    try { _tray.Dispose(); } catch { }
-                    try { _menu.Dispose(); } catch { }
-                    try { _dispatcher.Dispose(); } catch { }
                 }
-                base.Dispose(disposing);
-            }
-        }
 
-        private static void WatchLoop()
-        {
-            ManagementEventWatcher processWatcher = null;
-            try
-            {
+                if (!CodexLocator.HasRunningProcess()) continue;
+                bool manual = Interlocked.Exchange(ref _manualRefresh, 0) != 0;
+                bool updated = Interlocked.Exchange(ref _rateUpdatePending, 0) != 0;
                 try
                 {
-                    processWatcher = new ManagementEventWatcher(
-                        new WqlEventQuery("SELECT * FROM Win32_ProcessStartTrace WHERE ProcessName = 'ChatGPT.exe'"));
-                    processWatcher.EventArrived += delegate { Wake.Set(); };
-                    processWatcher.Start();
-                    Log("process-start event watcher active");
+                    if (manual || updated || DateTime.UtcNow >= nextRate)
+                    {
+                        snapshot = RefreshRate(snapshot);
+                        nextRate = DateTime.UtcNow.AddMinutes(2);
+                    }
+                    if (manual || DateTime.UtcNow >= nextUsage)
+                    {
+                        try { snapshot = RefreshUsage(snapshot); }
+                        catch (Exception ex) { Log.Write("usage read failed: " + ex.Message); }
+                        nextUsage = DateTime.UtcNow.AddMinutes(10);
+                    }
+                    string detail = snapshot.Windows.Count == 0 ? _texts.NoData : String.Empty;
+                    PostConnection(ConnectionKind.Connected, detail, snapshot);
                 }
                 catch (Exception ex)
                 {
-                    Log("process-start event watcher unavailable; using 3-second health polling: " + ex.Message);
-                    if (processWatcher != null)
-                    {
-                        try { processWatcher.Dispose(); } catch { }
-                        processWatcher = null;
-                    }
+                    Log.Write("app-server connection lost: " + ex.Message);
+                    StopClient();
+                    PostConnection(ConnectionKind.Failed, FriendlyError(ex.Message), new UsageSnapshot());
+                    failures++;
+                    WaitWorker(RetryDelayMs(failures));
+                    continue;
                 }
-
-                var waits = new WaitHandle[] { StopRequested, Wake };
-                while (!StopRequested.WaitOne(0))
-                {
-                    var current = GetCodexPids();
-                    if (current.Count == 0)
-                    {
-                        lock (Gate) { HandledPids.Clear(); }
-                        if (_fused)
-                        {
-                            ClearFuse();
-                            Log("restart fuse cleared after Codex fully exited");
-                        }
-                    }
-                    else if (!_fused && !HasHandledOverlap(current))
-                    {
-                        RunManagedAttach(true);
-                    }
-
-                    int timeout = processWatcher != null ? 3000 : 3000;
-                    if (WaitHandle.WaitAny(waits, timeout) == 0) break;
-                }
+                WaitWorker(5000);
             }
-            catch (Exception ex)
-            {
-                Log("watch loop error: " + ex);
-            }
-            finally
-            {
-                if (processWatcher != null)
-                {
-                    try { processWatcher.Stop(); } catch { }
-                    try { processWatcher.Dispose(); } catch { }
-                }
-                Log("watch loop stopped");
-            }
+            StopClient();
         }
 
-        private static void RequestManualRefresh()
+        private bool TryConnect(out string error)
         {
-            try
+            error = _texts.CliMissing;
+            List<string> candidates = CodexCommandResolver.Candidates();
+            foreach (string candidate in candidates)
             {
-                Directory.CreateDirectory(StateRoot);
-                File.WriteAllText(RefreshRequest, DateTimeOffset.Now.ToString("o"), new UTF8Encoding(false));
-                Log("manual refresh requested from tray");
-            }
-            catch (Exception ex)
-            {
-                Log("could not create refresh request: " + ex.Message);
-                return;
-            }
-
-            // The normal path is zero-disruption: the existing injector consumes
-            // refresh.request and immediately re-reads both rate limits and token
-            // usage. If the recorded injector is gone, attempt attach-only recovery;
-            // tray refresh never restarts Codex.
-            if (!IsRecordedInjectorAlive())
-            {
-                var current = GetCodexPids();
-                if (current.Count == 0)
+                var client = new AppServerClient();
+                client.RateLimitsUpdated += delegate { Interlocked.Exchange(ref _rateUpdatePending, 1); _workerWake.Set(); };
+                client.Exited += delegate { _workerWake.Set(); };
+                try
                 {
-                    Log("manual refresh deferred: Codex is not running");
-                    return;
-                }
-                Log("manual refresh found no live injector; attempting attach-only recovery");
-                RunManagedAttach(false);
-            }
-        }
-
-        private static bool IsRecordedInjectorAlive()
-        {
-            try
-            {
-                if (!File.Exists(InjectorState)) return false;
-                string json = File.ReadAllText(InjectorState, Encoding.UTF8);
-                Match match = Regex.Match(json, "\\\"injectorPid\\\"\\s*:\\s*(\\d+)", RegexOptions.IgnoreCase);
-                int pid;
-                if (!match.Success || !Int32.TryParse(match.Groups[1].Value, out pid) || pid <= 0) return false;
-                using (Process process = Process.GetProcessById(pid))
-                {
-                    if (process.HasExited) return false;
-                    return String.Equals(process.ProcessName, "node", StringComparison.OrdinalIgnoreCase) ||
-                           String.Equals(process.ProcessName, "node.exe", StringComparison.OrdinalIgnoreCase);
-                }
-            }
-            catch { return false; }
-        }
-
-        private static void StopLiveUsageBar()
-        {
-            if (!File.Exists(EngineScript))
-            {
-                Log("tray exit: engine missing; host will exit without DOM cleanup");
-                return;
-            }
-            int port = ReadPort();
-            int exitCode;
-            bool completed = RunPowerShellEngine("-Stop -CdpPort " + port, 25000, out exitCode);
-            if (!completed)
-                Log("tray exit: engine stop timed out or could not start");
-            else
-                Log("tray exit: engine stop exit code=" + exitCode);
-        }
-
-        private static bool RunManagedAttach(bool allowRestart)
-        {
-            if (Interlocked.CompareExchange(ref _attachInProgress, 1, 0) != 0)
-            {
-                Log("managed attach already in progress; request coalesced");
-                return false;
-            }
-
-            try
-            {
-                if (!File.Exists(EngineScript))
-                {
-                    Log("managed engine is missing; watcher will wait for reinstall");
-                    if (allowRestart) SetFuse("engine-missing");
-                    return false;
-                }
-
-                var before = GetCodexPids();
-                if (before.Count == 0) return false;
-
-                int port = ReadPort();
-                string action = "-Launch -ManagedAttach -CdpPort " + port;
-                if (allowRestart) action = "-Launch -RestartExisting -ManagedAttach -CdpPort " + port;
-
-                Log((allowRestart ? "managed attach" : "attach-only recovery") +
-                    " starting for Codex pids=" + Join(before) + " port=" + port);
-
-                int exitCode;
-                bool completed = RunPowerShellEngine(action, 70000, out exitCode);
-                if (!completed)
-                {
-                    if (allowRestart)
-                    {
-                        SetFuse("managed-attach-timeout");
-                        Log("managed attach timed out; automatic restarts disabled until Codex exits");
-                    }
-                    else
-                    {
-                        Log("attach-only recovery timed out; Codex was not restarted");
-                    }
-                    return false;
-                }
-
-                if (exitCode != 0)
-                {
-                    var afterFailure = GetCodexPids();
-                    if (afterFailure.Count == 0)
-                    {
-                        Log("managed attach ended after Codex exited; no fuse retained");
-                        return false;
-                    }
-                    if (allowRestart)
-                    {
-                        SetFuse("managed-attach-exit-" + exitCode);
-                        Log("managed attach failed with exit code " + exitCode +
-                            "; automatic restarts disabled until Codex fully exits");
-                    }
-                    else
-                    {
-                        Log("attach-only recovery failed with exit code " + exitCode + "; no restart attempted");
-                    }
-                    return false;
-                }
-
-                var after = GetCodexPids();
-                lock (Gate)
-                {
-                    HandledPids.Clear();
-                    foreach (int pid in after) HandledPids.Add(pid);
-                }
-                ClearFuse();
-                Log("managed attach succeeded; handled Codex pids=" + Join(after));
-                return true;
-            }
-            catch (Exception ex)
-            {
-                var remaining = GetCodexPids();
-                if (allowRestart && remaining.Count > 0)
-                {
-                    SetFuse("managed-attach-exception");
-                    Log("managed attach exception; automatic restarts disabled until Codex exits: " + ex.Message);
-                }
-                else
-                {
-                    Log("attach exception without restart: " + ex.Message);
-                }
-                return false;
-            }
-            finally
-            {
-                Interlocked.Exchange(ref _attachInProgress, 0);
-            }
-        }
-
-        private static bool RunPowerShellEngine(string engineArguments, int timeoutMs, out int exitCode)
-        {
-            exitCode = -1;
-            string systemDir = Environment.GetFolderPath(Environment.SpecialFolder.System);
-            string powershell = Path.Combine(systemDir, "WindowsPowerShell", "v1.0", "powershell.exe");
-            if (!File.Exists(powershell)) powershell = "powershell.exe";
-
-            string args = "-NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy RemoteSigned -File " +
-                Quote(EngineScript) + " " + engineArguments;
-
-            var psi = new ProcessStartInfo();
-            psi.FileName = powershell;
-            psi.Arguments = args;
-            psi.UseShellExecute = false;
-            psi.CreateNoWindow = true;
-            psi.WindowStyle = ProcessWindowStyle.Hidden;
-
-            try
-            {
-                using (var child = Process.Start(psi))
-                {
-                    if (child == null) return false;
-                    if (!child.WaitForExit(timeoutMs))
-                    {
-                        try { child.Kill(); } catch { }
-                        return false;
-                    }
-                    exitCode = child.ExitCode;
+                    client.Start(candidate);
+                    _client = client;
                     return true;
                 }
-            }
-            catch (Exception ex)
-            {
-                Log("PowerShell engine start failed: " + ex.Message);
-                return false;
-            }
-        }
-
-        private static bool HasHandledOverlap(HashSet<int> current)
-        {
-            lock (Gate)
-            {
-                foreach (int pid in current)
-                    if (HandledPids.Contains(pid)) return true;
+                catch (Exception ex)
+                {
+                    error = ex.Message;
+                    Log.Write("app-server candidate failed " + candidate + ": " + ex.Message);
+                    client.Dispose();
+                }
             }
             return false;
         }
 
-        private static HashSet<int> GetCodexPids()
+        private UsageSnapshot RefreshRate(UsageSnapshot previous)
         {
-            var result = new HashSet<int>();
+            object response = _client.Request("account/rateLimits/read", null, 10000);
+            var next = CloneSnapshot(previous);
+            next.Windows.Clear();
+            next.Windows.AddRange(AppDataParser.ParseRateLimits(response));
+            Log.Write("rate limits refreshed windows=" + next.Windows.Count + " displayed=" + next.DisplayWindows.Count);
+            return next;
+        }
+
+        private UsageSnapshot RefreshUsage(UsageSnapshot previous)
+        {
+            object response = _client.Request("account/usage/read", null, 10000);
+            var next = CloneSnapshot(previous);
+            AppDataParser.ParseUsage(response, next);
+            Log.Write("token usage refreshed");
+            return next;
+        }
+
+        private static UsageSnapshot CloneSnapshot(UsageSnapshot source)
+        {
+            var copy = new UsageSnapshot();
+            if (source != null)
+            {
+                copy.Windows.AddRange(source.Windows);
+                copy.YesterdayTokens = source.YesterdayTokens;
+                copy.LifetimeTokens = source.LifetimeTokens;
+            }
+            return copy;
+        }
+
+        internal static int RetryDelayMs(int failures)
+        {
+            if (failures <= 1) return 1000;
+            if (failures == 2) return 2000;
+            if (failures == 3) return 5000;
+            if (failures == 4) return 15000;
+            return 30000;
+        }
+
+        private string FriendlyError(string error)
+        {
+            string value = error ?? String.Empty;
+            if (value.IndexOf("auth", StringComparison.OrdinalIgnoreCase) >= 0 || value.IndexOf("login", StringComparison.OrdinalIgnoreCase) >= 0) return _texts.AuthFailed;
+            if (value.IndexOf("not found", StringComparison.OrdinalIgnoreCase) >= 0 || value.IndexOf("missing", StringComparison.OrdinalIgnoreCase) >= 0) return _texts.CliMissing;
+            return _texts.InterfaceUnavailable;
+        }
+
+        private void StopClient()
+        {
+            AppServerClient client = _client;
+            _client = null;
+            if (client != null) client.Dispose();
+        }
+
+        private void WaitWorker(int milliseconds)
+        {
+            WaitHandle.WaitAny(new WaitHandle[] { _stop, _workerWake }, milliseconds);
+        }
+
+        private void WriteHostState()
+        {
             try
             {
-                using (var searcher = new ManagementObjectSearcher(
-                    "SELECT ProcessId, ExecutablePath FROM Win32_Process WHERE Name = 'ChatGPT.exe'"))
-                using (var objects = searcher.Get())
+                var state = new Dictionary<string, object>();
+                state["version"] = CompanionHost.Version;
+                state["pid"] = Process.GetCurrentProcess().Id;
+                state["path"] = Application.ExecutablePath;
+                File.WriteAllText(_hostStatePath, new JavaScriptSerializer().Serialize(state), new UTF8Encoding(false));
+            }
+            catch { }
+        }
+
+        private void PostExit()
+        {
+            try { _dispatcher.BeginInvoke((MethodInvoker)BeginExit); }
+            catch { }
+        }
+
+        private void BeginExit()
+        {
+            if (Interlocked.Exchange(ref _exiting, 1) != 0) return;
+            Log.Write("exit requested");
+            _tray.Visible = false;
+            _overlay.Hide();
+            _stop.Set();
+            _workerWake.Set();
+            StopClient();
+            if (_worker != null && _worker.IsAlive) _worker.Join(3500);
+            ExitThread();
+        }
+
+        protected override void ExitThreadCore()
+        {
+            _stop.Set();
+            _workerWake.Set();
+            base.ExitThreadCore();
+        }
+
+        protected override void Dispose(bool disposing)
+        {
+            if (disposing)
+            {
+                try { _presentationTimer.Stop(); } catch { }
+                try { _themeDebounce.Stop(); } catch { }
+                if (_themeWatcher != null) try { _themeWatcher.Dispose(); } catch { }
+                try { _windowEvents.Dispose(); } catch { }
+                try { _exitRegistration.Unregister(null); } catch { }
+                try { _exitSignal.Dispose(); } catch { }
+                try { _tray.Visible = false; _tray.Dispose(); } catch { }
+                try { _menu.Dispose(); } catch { }
+                try { _overlay.Dispose(); } catch { }
+                try { _dispatcher.Dispose(); } catch { }
+                try { File.Delete(_hostStatePath); } catch { }
+                _workerWake.Dispose();
+                _stop.Dispose();
+            }
+            base.Dispose(disposing);
+        }
+    }
+
+    internal static class SelfTests
+    {
+        internal static int Run()
+        {
+            Log.Disabled = true;
+            try
+            {
+                ThemeSet theme = ThemeReader.Parse("[desktop]\nappearanceTheme=\"dark\"\nlanguage=\"zh-Hant\"\n[desktop.appearanceDarkChromeTheme]\naccent=\"#3dcd6e\"\nink=\"#fcfcfc\"\nsurface=\"#111111\"\n[desktop.appearanceDarkChromeTheme.fonts]\nui=\"Inter\"");
+                Assert(theme.Appearance == "dark", "theme selection");
+                Assert(theme.Dark.Accent.R == 61 && theme.Dark.Accent.G == 205 && theme.Dark.Accent.B == 110, "accent parsing");
+                Assert(theme.Dark.Surface.R == 17, "surface parsing");
+                Assert(Texts.Resolve(LanguageMode.FollowCodex, theme.Language).Chinese, "Codex Chinese-family language");
+                Assert(!Texts.Resolve(LanguageMode.FollowCodex, "fr-FR").Chinese, "unsupported language falls back to English");
+                Assert(Texts.Resolve(LanguageMode.Chinese, "en-US").Chinese, "language override");
+
+                string sample = "{\"rateLimits\":{\"primary\":{\"usedPercent\":25,\"windowDurationMins\":300,\"resetsAt\":1787144400},\"secondary\":{\"usedPercent\":82,\"windowDurationMins\":10080,\"resetsAt\":1787749200},\"tertiary\":{\"usedPercent\":10,\"windowDurationMins\":1440,\"resetsAt\":1787800000}}}";
+                object parsed = new JavaScriptSerializer().DeserializeObject(sample);
+                List<LimitWindow> windows = AppDataParser.ParseRateLimits(parsed);
+                Assert(windows.Count == 3, "raw rate window count");
+                Assert(Math.Abs(windows[0].Remaining - 75) < 0.001, "remaining calculation");
+                var snapshot = new UsageSnapshot();
+                snapshot.Windows.AddRange(windows);
+                Assert(snapshot.DisplayWindows.Count == 2, "five-hour and weekly filtering");
+                Assert(snapshot.DisplayWindows[0].WindowDurationMins == 300 && snapshot.DisplayWindows[1].WindowDurationMins == 10080,
+                    "five-hour and weekly ordering");
+                var weeklyOnly = new UsageSnapshot();
+                weeklyOnly.Windows.Add(snapshot.DisplayWindows[1]);
+                Assert(weeklyOnly.DisplayWindows.Count == 1 && weeklyOnly.DisplayWindows[0].WindowDurationMins == 10080,
+                    "weekly-only fallback");
+
+                string yesterday = DateTime.Today.AddDays(-1).ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
+                string usageSample = "{\"summary\":{\"lifetimeTokens\":4567},\"dailyUsageBuckets\":[{\"startDate\":\"" + yesterday + "\",\"tokens\":1234}]}";
+                AppDataParser.ParseUsage(new JavaScriptSerializer().DeserializeObject(usageSample), snapshot);
+                Assert(snapshot.YesterdayTokens == 1234 && snapshot.LifetimeTokens == 4567, "yesterday token parsing");
+                using (var owner = new Form())
+                using (var overlay = new OverlayForm())
                 {
-                    foreach (ManagementObject item in objects)
-                    {
-                        try
-                        {
-                            string path = item["ExecutablePath"] as string;
-                            if (!IsCodexPackagePath(path)) continue;
-                            uint rawPid = Convert.ToUInt32(item["ProcessId"]);
-                            if (rawPid > 0 && rawPid <= Int32.MaxValue) result.Add((int)rawPid);
-                        }
-                        catch { }
-                        finally { try { item.Dispose(); } catch { } }
-                    }
+                    overlay.ApplySnapshot(snapshot);
+                    int collapsedWidth = overlay.Width;
+                    Assert(overlay.Height == OverlayForm.ToolbarHeight - 2, "collapsed toolbar height");
+                    overlay.SetExpanded(true);
+                    Assert(overlay.Width == collapsedWidth, "stable dynamic width");
+                    overlay.SetMode(DisplayMode.Attached);
+                    IntPtr overlayHandle = overlay.Handle;
+                    overlay.BringAboveCodex(owner.Handle, true);
+                    Assert(NativeMethods.GetWindow(overlayHandle, NativeMethods.GW_OWNER) == owner.Handle, "attached owner level");
+                    overlay.SetMode(DisplayMode.Independent);
+                    Assert(NativeMethods.GetWindow(overlayHandle, NativeMethods.GW_OWNER) == IntPtr.Zero, "independent owner cleared");
                 }
+                Assert(Formatters.CompactTokens(999) == "999", "token 999");
+                Assert(Formatters.CompactTokens(1250) == "1.3K", "token 1250");
+                Assert(Formatters.CompactTokens(999950) == "1M", "token promotion");
+                Assert(CompanionContext.RetryDelayMs(1) == 1000 && CompanionContext.RetryDelayMs(5) == 30000, "retry policy");
+                return 0;
             }
-            catch { }
-            return result;
+            catch { return 1; }
         }
 
-        private static bool IsCodexPackagePath(string path)
+        private static void Assert(bool condition, string name)
         {
-            if (String.IsNullOrEmpty(path)) return false;
-            string normalized = path.Replace('/', '\\');
-            return normalized.IndexOf("\\WindowsApps\\OpenAI.Codex_", StringComparison.OrdinalIgnoreCase) >= 0 &&
-                   normalized.EndsWith("\\app\\ChatGPT.exe", StringComparison.OrdinalIgnoreCase);
-        }
-
-        private static int ReadPort()
-        {
-            const int fallback = 9335;
-            try
-            {
-                if (!File.Exists(InstallState)) return fallback;
-                string json = File.ReadAllText(InstallState, Encoding.UTF8);
-                Match match = Regex.Match(json, "\\\"cdpPort\\\"\\s*:\\s*(\\d+)", RegexOptions.IgnoreCase);
-                int value;
-                if (match.Success && Int32.TryParse(match.Groups[1].Value, out value) && value >= 1024 && value <= 65535)
-                    return value;
-            }
-            catch { }
-            return fallback;
-        }
-
-        private static void WriteHostState()
-        {
-            try
-            {
-                string hostPath = Process.GetCurrentProcess().MainModule.FileName;
-                string json = "{\r\n" +
-                    "  \"schemaVersion\": 2,\r\n" +
-                    "  \"version\": \"" + Version + "\",\r\n" +
-                    "  \"watcherPid\": " + Process.GetCurrentProcess().Id + ",\r\n" +
-                    "  \"hostPath\": \"" + JsonEscape(hostPath) + "\",\r\n" +
-                    "  \"tray\": true,\r\n" +
-                    "  \"startedAt\": \"" + DateTimeOffset.Now.ToString("o") + "\"\r\n" +
-                    "}\r\n";
-                File.WriteAllText(HostState, json, new UTF8Encoding(false));
-            }
-            catch (Exception ex) { Log("could not write watcher host state: " + ex.Message); }
-        }
-
-        private static void SetFuse(string reason)
-        {
-            _fused = true;
-            try
-            {
-                string json = "{\r\n" +
-                    "  \"schemaVersion\": 1,\r\n" +
-                    "  \"reason\": \"" + JsonEscape(reason) + "\",\r\n" +
-                    "  \"createdAt\": \"" + DateTimeOffset.Now.ToString("o") + "\"\r\n" +
-                    "}\r\n";
-                File.WriteAllText(FuseState, json, new UTF8Encoding(false));
-            }
-            catch { }
-        }
-
-        private static void ClearFuse()
-        {
-            _fused = false;
-            try { if (File.Exists(FuseState)) File.Delete(FuseState); } catch { }
-        }
-
-        private static string Quote(string value)
-        {
-            return "\"" + value.Replace("\"", "\\\"") + "\"";
-        }
-
-        private static string Join(HashSet<int> values)
-        {
-            var list = new List<string>();
-            foreach (int value in values) list.Add(value.ToString());
-            return String.Join(",", list.ToArray());
-        }
-
-        private static string JsonEscape(string value)
-        {
-            if (value == null) return "";
-            return value.Replace("\\", "\\\\").Replace("\"", "\\\"").Replace("\r", "\\r").Replace("\n", "\\n");
-        }
-
-        private static void Log(string message)
-        {
-            try
-            {
-                Directory.CreateDirectory(StateRoot);
-                File.AppendAllText(LogPath,
-                    DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss.fff") + " " + message + Environment.NewLine,
-                    new UTF8Encoding(false));
-            }
-            catch { }
+            if (!condition) throw new InvalidOperationException("self-test failed: " + name);
         }
     }
 }

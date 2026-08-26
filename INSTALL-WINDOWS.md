@@ -1,85 +1,54 @@
-# Codex Usage Bar v0.4.16 — Windows installation model
+# Codex Usage Bar 0.6.0 Windows 安装说明
 
-v0.4.16 keeps the renderer/injector and native tray model, and adds document-language-driven localization with built-in Chinese and English catalogs plus user-maintained locale files.
+## 安装
 
-## Safety change from v0.4.13
+1. 完全退出旧版 Codex Usage Bar；安装器也会尝试自动停止它。
+2. 运行 `CodexUsageBar-Setup-v0.6.0.exe`。
+3. 保留“登录 Windows 时启动”可让托盘常驻；不需要时可取消。
+4. 安装结束后启动 Codex。
 
-v0.4.13 could repeatedly restart Codex if an automatic CDP attach failed after the restart. v0.4.16 is fail-closed:
+companion 检测到 Codex 后启动 App Server。连接成功且返回有效额度数据时，悬浮窗才会出现。
 
-- the watcher may request at most one automatic CDP restart for a Codex session;
-- if that attach fails while Codex is still running, `watcher-fuse.json` is written;
-- no further automatic restart is attempted until Codex has fully exited;
-- the fuse survives watcher-host restarts, so restarting the watcher itself cannot recreate a reboot loop;
-- a managed attach will never launch Codex if the user already closed the triggering Codex session.
+## 托盘操作
 
-The legacy PowerShell `-Watch` path remains only for compatibility/diagnostics and has the same fuse behavior. The Setup installer does not use it for persistent startup.
+左键或右键托盘图标均可打开菜单：
 
-## Startup model
+- `Codex 连接：成功/失败/正在连接/未检测到 Codex`：当前连接状态。
+- `显示悬浮窗`：保留或取消显示偏好。
+- `展示方式 > 独立展示`：桌面置顶，可拖动。
+- `展示方式 > 吸附 Codex 窗口`：贴附在 Codex 工具栏；Codex 失焦后保留，但可被其他应用遮挡。
+- `语言`：可选择跟随 Codex、中文或 English。
+- `立即刷新`：立即读取额度和 Token。
+- `退出`：退出 companion，不卸载、不删除启动项。
 
-The installer deploys:
+连接失败时悬浮窗强制隐藏，但“显示悬浮窗”偏好不变；连接恢复后自动重新显示。
 
-```text
-%LOCALAPPDATA%\Programs\CodexUsageBar\
-  CodexUsageBar.WatcherHost.exe
-  setup-bootstrap.ps1
-  payload\...
+## 升级
 
-%LOCALAPPDATA%\CodexUsageBar\
-  engine\...
-  install.json
-  watcher-host.json
-  watcher-host.log
-  watcher-fuse.json   # only present after a failed automatic attach
-```
+0.6.0 使用与 0.4.x 相同的安装 AppId，可直接覆盖安装。升级过程会：
 
-A normal per-user `HKCU\Software\Microsoft\Windows\CurrentVersion\Run` value points directly at `CodexUsageBar.WatcherHost.exe`. There is no Startup-folder shortcut whose target is hidden PowerShell.
+1. 停止旧 watcher、injector 和新 companion。
+2. 删除旧 CDP engine 与 `9335` 状态文件。
+3. 保留 `settings.json`。
+4. 安装并启动 `CodexUsageBar.exe`。
 
-The native watcher listens for `ChatGPT.exe` process-start events, verifies that the executable path belongs to the registered `OpenAI.Codex` WindowsApps package pattern, and only then starts a one-shot Windows PowerShell attach worker. A 3-second process check is retained as a low-frequency recovery path and to detect when Codex has fully exited so the restart fuse can be cleared.
+不修改或重启 Codex。
 
-## Tray controls
+## 卸载
 
-`CodexUsageBar.WatcherHost.exe` stays visible in the Windows notification area while the integration is active. Right-click the icon to use:
+在 Windows“设置 > 应用 > 已安装的应用”中卸载 Codex Usage Bar。卸载会停止 companion，删除程序文件、启动项、设置和日志；不修改 Codex。
 
-- **刷新** — writes a lightweight refresh request consumed by the existing injector. It immediately re-reads rate limits and token usage without restarting Codex or tearing down the Usage Bar. If the injector is missing, the tray performs attach-only recovery and still never restarts Codex.
-- **退出** — removes the live Usage Bar when CDP is available, stops the injector, stops the watcher host, and removes the tray icon. The installed HKCU Run entry is intentionally kept, so the integration starts again at the next Windows sign-in.
+## 排错
 
-Double-clicking the tray icon performs the same action as **刷新**.
+托盘显示连接失败时：
 
-## Application icon
+1. 确认 Codex Windows 应用正在运行。
+2. 确认 Codex CLI 已登录同一账户。
+3. 点击托盘“立即刷新”。
+4. 查看 `%LOCALAPPDATA%\CodexUsageBar\companion.log`。
 
-`assets/codex-usage-bar-logo.png` is converted without artwork changes to `assets/codex-usage-bar.ico`, a multi-resolution Windows icon containing 16, 20, 24, 32, 40, 48, 64, 128, and 256 pixel entries. The `.ico` is embedded into `CodexUsageBar.WatcherHost.exe` and is also used by Setup.exe, the Start Menu shortcut, and the uninstall entry.
+悬浮窗没有出现时，同时检查：
 
-## PowerShell 5.1 compatibility
-
-The one-shot attach worker is intentionally Windows PowerShell 5.1 compatible. v0.4.16 keeps the `.NET ProcessStartInfo.ArgumentList` compatibility fix from the CDP probe and no longer relies on the unused `Invoke-RestMethod -NoProxy` helper.
-
-## Build
-
-Install Inno Setup 6, then run from the project root:
-
-```powershell
-pwsh.exe -NoProfile -ExecutionPolicy RemoteSigned -File .\installer\build-release.ps1 `
-  -InnoCompiler 'D:\Program Files (x86)\Inno Setup 6\ISCC.exe'
-```
-
-The build script also uses the .NET Framework C# compiler already included with Windows to produce `CodexUsageBar.WatcherHost.exe`, then embeds it in the Setup package.
-
-Output:
-
-```text
-dist\CodexUsageBar-Setup-v0.4.16.exe
-```
-
-## Install / update
-
-Close Codex before installing. Running a newer Setup.exe performs an in-place managed-engine update. The installer does not modify WindowsApps, `app.asar`, or the Codex application signature.
-
-## Uninstall
-
-Use Windows **Settings → Apps → Installed apps → Codex Usage Bar → Uninstall**. The uninstall bootstrap stops the native watcher first, removes any live Usage Bar injection when CDP is available, stops the injector, clears the managed state directory, and then lets Inno Setup remove the installed program files and HKCU Run entry.
-
-## Language matching
-
-Renderer text follows `document.documentElement.lang` from Codex. All Chinese variants use the built-in `zh.json`. Other languages first try the exact locale, then the primary language, and finally English. Numeric percentages and token values are not localized or reformatted.
-
-Built-in catalogs are `engine\locales\en.json` and `engine\locales\zh.json`. Additional user-maintained JSON catalogs belong in `%LOCALAPPDATA%\CodexUsageBar\locales\`; they survive normal upgrades. Tray **Refresh** reloads these locale files as well as usage data.
+- 托盘“显示悬浮窗”是否勾选。
+- 托盘连接状态是否成功。
+- 吸附模式下 Codex 是否仍有可用窗口且未最小化。

@@ -2,7 +2,8 @@
 param(
     [string]$OutputDir,
     [string]$InnoCompiler = $env:INNO_SETUP_COMPILER,
-    [string]$CSharpCompiler = $env:CSC_COMPILER
+    [string]$CSharpCompiler = $env:CSC_COMPILER,
+    [switch]$SkipInstaller
 )
 
 $ErrorActionPreference = 'Stop'
@@ -148,22 +149,21 @@ $CSharpCompiler = Find-CSharpCompiler -ExplicitPath $CSharpCompiler
 if (-not $CSharpCompiler) {
     throw 'The .NET Framework C# compiler (csc.exe) was not found. Windows 10/11 normally provides it under %WINDIR%\Microsoft.NET\Framework64\v4.0.30319.'
 }
-$SystemManagementReference = Find-FrameworkReference -CompilerPath $CSharpCompiler -AssemblyName 'System.Management.dll'
 $SystemWindowsFormsReference = Find-FrameworkReference -CompilerPath $CSharpCompiler -AssemblyName 'System.Windows.Forms.dll'
 $SystemDrawingReference = Find-FrameworkReference -CompilerPath $CSharpCompiler -AssemblyName 'System.Drawing.dll'
 $SystemWebExtensionsReference = Find-FrameworkReference -CompilerPath $CSharpCompiler -AssemblyName 'System.Web.Extensions.dll'
-if (-not $SystemManagementReference) { throw 'System.Management.dll was not found for the native watcher host build.' }
 if (-not $SystemWindowsFormsReference) { throw 'System.Windows.Forms.dll was not found for the tray watcher host build.' }
 if (-not $SystemDrawingReference) { throw 'System.Drawing.dll was not found for the tray watcher host build.' }
-if (-not $SystemWebExtensionsReference) { throw 'System.Web.Extensions.dll was not found for tray locale JSON support.' }
+if (-not $SystemWebExtensionsReference) { throw 'System.Web.Extensions.dll was not found for JSON support.' }
 Write-Host "Using C# compiler: $CSharpCompiler"
-Write-Host "Using System.Management: $SystemManagementReference"
 Write-Host "Using System.Windows.Forms: $SystemWindowsFormsReference"
 Write-Host "Using System.Drawing: $SystemDrawingReference"
 Write-Host "Using System.Web.Extensions: $SystemWebExtensionsReference"
 
-$InnoCompiler = Find-InnoSetupCompiler -ExplicitPath $InnoCompiler
-if (-not $InnoCompiler) {
+if (-not $SkipInstaller) {
+    $InnoCompiler = Find-InnoSetupCompiler -ExplicitPath $InnoCompiler
+}
+if (-not $SkipInstaller -and -not $InnoCompiler) {
     throw @'
 Inno Setup 6 compiler (ISCC.exe) was not found.
 The script checked PATH, the Windows uninstall registry, LocalAppData, and Program Files.
@@ -173,15 +173,20 @@ or set INNO_SETUP_COMPILER to that full path.
 '@
 }
 
-Write-Host "Using Inno Setup compiler: $InnoCompiler"
+if (-not $SkipInstaller) { Write-Host "Using Inno Setup compiler: $InnoCompiler" }
 
 $stageRoot = Join-Path $env:TEMP ("codex-usage-bar-stage-" + [guid]::NewGuid().ToString('N'))
-$payload = Join-Path $stageRoot 'payload'
-New-Item -ItemType Directory -Force -Path $payload | Out-Null
 New-Item -ItemType Directory -Force -Path $OutputDir | Out-Null
 try {
-    $watcherSource = Join-Path $scriptRoot 'watcher-host.cs'
-    $watcherExe = Join-Path $stageRoot 'CodexUsageBar.WatcherHost.exe'
+    New-Item -ItemType Directory -Force -Path $stageRoot | Out-Null
+    $companionSources = @(
+        (Join-Path $scriptRoot 'watcher-host.cs'),
+        (Join-Path $scriptRoot 'companion-model.cs'),
+        (Join-Path $scriptRoot 'app-server-client.cs'),
+        (Join-Path $scriptRoot 'platform.cs'),
+        (Join-Path $scriptRoot 'overlay-form.cs')
+    )
+    $companionExe = Join-Path $stageRoot 'CodexUsageBar.exe'
     $iconSource = Join-Path $projectRoot 'assets\codex-usage-bar.ico'
     $stageIcon = Join-Path $stageRoot 'codex-usage-bar.ico'
     if (-not (Test-Path -LiteralPath $iconSource -PathType Leaf)) {
@@ -189,25 +194,26 @@ try {
     }
     Copy-Item -LiteralPath $iconSource -Destination $stageIcon -Force
     & $CSharpCompiler /nologo /target:winexe /platform:anycpu /optimize+ `
-        "/out:$watcherExe" `
+        "/out:$companionExe" `
         "/win32icon:$stageIcon" `
-        "/reference:$SystemManagementReference" `
         "/reference:$SystemWindowsFormsReference" `
         "/reference:$SystemDrawingReference" `
         "/reference:$SystemWebExtensionsReference" `
-        $watcherSource
-    if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $watcherExe -PathType Leaf)) {
-        throw "WatcherHost C# compilation failed with exit code $LASTEXITCODE"
+        $companionSources
+    if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $companionExe -PathType Leaf)) {
+        throw "Companion C# compilation failed with exit code $LASTEXITCODE"
     }
-    Write-Host "Built native watcher host: $watcherExe"
+    $selfTest = Start-Process -FilePath $companionExe -ArgumentList '--self-test' -WindowStyle Hidden -Wait -PassThru
+    if ($selfTest.ExitCode -ne 0) { throw "Companion self-test failed with exit code $($selfTest.ExitCode)" }
+    $standaloneExe = Join-Path $OutputDir 'CodexUsageBar.exe'
+    Copy-Item -LiteralPath $companionExe -Destination $standaloneExe -Force
+    Write-Host "Built and tested native companion: $standaloneExe"
 
     Copy-Item -LiteralPath (Join-Path $projectRoot 'setup-bootstrap.ps1') -Destination $stageRoot -Force
-    foreach ($file in @('VERSION', 'codex-usage-bar.ps1', 'injector.mjs', 'renderer-inject.js')) {
-        Copy-Item -LiteralPath (Join-Path $projectRoot $file) -Destination $payload -Force
+    foreach ($file in @('VERSION', 'README.md', 'INSTALL-WINDOWS.md', 'CODEX-THEME-SPEC.md', 'LICENSE')) {
+        Copy-Item -LiteralPath (Join-Path $projectRoot $file) -Destination $stageRoot -Force
     }
-    $payloadLocales = Join-Path $payload 'locales'
-    New-Item -ItemType Directory -Force -Path $payloadLocales | Out-Null
-    Copy-Item -Path (Join-Path $projectRoot 'locales\*') -Destination $payloadLocales -Recurse -Force
+    if ($SkipInstaller) { return }
 
     $iss = Join-Path $scriptRoot 'codex-usage-bar.iss'
     & $InnoCompiler `
