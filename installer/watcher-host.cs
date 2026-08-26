@@ -188,7 +188,7 @@ namespace CodexUsageBar
             _modeItem.DropDownItems.Add(_independentItem);
             _modeItem.DropDownItems.Add(_attachedItem);
             _languageItem = new ToolStripMenuItem(_texts.Language);
-            _followLanguageItem = new ToolStripMenuItem(_texts.FollowCodex);
+            _followLanguageItem = new ToolStripMenuItem(_texts.FollowSystem);
             _chineseLanguageItem = new ToolStripMenuItem(_texts.ChineseLanguage);
             _englishLanguageItem = new ToolStripMenuItem(_texts.EnglishLanguage);
             _followLanguageItem.Click += delegate { SetLanguageMode(LanguageMode.FollowCodex); };
@@ -208,14 +208,19 @@ namespace CodexUsageBar
             _menu.Items.Add(_connectionItem);
             _menu.Items.Add(_connectionDetailItem);
             _menu.Items.Add(new ToolStripSeparator());
+            _menu.Items.Add(_refreshItem);
             _menu.Items.Add(_showItem);
             _menu.Items.Add(_modeItem);
             _menu.Items.Add(_languageItem);
             _menu.Items.Add(_startupItem);
-            _menu.Items.Add(_refreshItem);
             _menu.Items.Add(new ToolStripSeparator());
             _menu.Items.Add(_exitItem);
+            _menu.AutoClose = true;
             _menu.Opening += delegate { UpdateMenu(); };
+            _menu.LostFocus += delegate
+            {
+                try { _menu.BeginInvoke((MethodInvoker)CloseMenuIfInactive); } catch { }
+            };
 
             Icon icon = null;
             try { icon = Icon.ExtractAssociatedIcon(Application.ExecutablePath); } catch { }
@@ -310,6 +315,12 @@ namespace CodexUsageBar
             _menu.Focus();
         }
 
+        private void CloseMenuIfInactive()
+        {
+            if (!_menu.ContainsFocus && !_modeItem.DropDown.ContainsFocus && !_languageItem.DropDown.ContainsFocus)
+                _menu.Close(ToolStripDropDownCloseReason.AppFocusChange);
+        }
+
         private void ToggleVisibility(object sender, EventArgs e)
         {
             _settings.Visible = !_settings.Visible;
@@ -383,7 +394,7 @@ namespace CodexUsageBar
             _independentItem.Checked = _settings.Mode == DisplayMode.Independent;
             _attachedItem.Checked = _settings.Mode == DisplayMode.Attached;
             _languageItem.Text = _texts.Language;
-            _followLanguageItem.Text = _texts.FollowCodex;
+            _followLanguageItem.Text = _texts.FollowSystem;
             _chineseLanguageItem.Text = _texts.ChineseLanguage;
             _englishLanguageItem.Text = _texts.EnglishLanguage;
             _followLanguageItem.Checked = _settings.Language == LanguageMode.FollowCodex;
@@ -742,6 +753,8 @@ namespace CodexUsageBar
                 Assert(Texts.Resolve(LanguageMode.FollowCodex, theme.Language).Chinese, "Codex Chinese-family language");
                 Assert(!Texts.Resolve(LanguageMode.FollowCodex, "fr-FR").Chinese, "unsupported language falls back to English");
                 Assert(Texts.Resolve(LanguageMode.Chinese, "en-US").Chinese, "language override");
+                Assert(new Texts(true).Attached == "跟随 Codex" && new Texts(true).FollowSystem == "跟随系统", "Chinese menu labels");
+                Assert(new Texts(false).Attached == "Follow Codex" && new Texts(false).FollowSystem == "Follow system", "English menu labels");
 
                 string sample = "{\"rateLimits\":{\"primary\":{\"usedPercent\":25,\"windowDurationMins\":300,\"resetsAt\":1787144400},\"secondary\":{\"usedPercent\":82,\"windowDurationMins\":10080,\"resetsAt\":1787749200},\"tertiary\":{\"usedPercent\":10,\"windowDurationMins\":1440,\"resetsAt\":1787800000}}}";
                 object parsed = new JavaScriptSerializer().DeserializeObject(sample);

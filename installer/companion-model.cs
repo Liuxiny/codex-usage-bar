@@ -547,11 +547,11 @@ namespace CodexUsageBar
         internal string ShowWindow { get { return Chinese ? "显示悬浮窗" : "Show floating window"; } }
         internal string DisplayMode { get { return Chinese ? "展示方式" : "Display mode"; } }
         internal string Language { get { return Chinese ? "语言" : "Language"; } }
-        internal string FollowCodex { get { return Chinese ? "跟随 Codex" : "Follow Codex"; } }
+        internal string FollowSystem { get { return Chinese ? "跟随系统" : "Follow system"; } }
         internal string ChineseLanguage { get { return Chinese ? "中文" : "Chinese"; } }
         internal string EnglishLanguage { get { return "English"; } }
         internal string Independent { get { return Chinese ? "独立展示" : "Independent"; } }
-        internal string Attached { get { return Chinese ? "吸附 Codex 窗口" : "Attach to Codex"; } }
+        internal string Attached { get { return Chinese ? "跟随 Codex" : "Follow Codex"; } }
         internal string StartWithWindows { get { return Chinese ? "开机启动" : "Start with Windows"; } }
         internal string Refresh { get { return Chinese ? "立即刷新" : "Refresh now"; } }
         internal string Exit { get { return Chinese ? "退出" : "Exit"; } }
