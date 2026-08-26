@@ -1,9 +1,9 @@
-# Codex Usage Bar 0.6.1 Windows 安装说明
+# Codex Usage Bar 0.6.2 Windows 安装说明
 
 ## 安装
 
 1. 完全退出旧版 Codex Usage Bar；安装器也会尝试自动停止它。
-2. 运行 `CodexUsageBar-Setup-v0.6.1.exe`。
+2. 运行 `CodexUsageBar-Setup-v0.6.2.exe`。
 3. 保留“登录 Windows 时启动”可让托盘常驻；不需要时可取消。
 4. 安装结束后启动 Codex。
 
@@ -26,7 +26,7 @@ companion 检测到 Codex 后启动 App Server。连接成功且返回有效额�
 
 ## 升级
 
-0.6.1 使用与 0.4.x 相同的安装 AppId，可直接覆盖安装。升级过程会：
+0.6.2 使用与 0.4.x 相同的安装 AppId，可直接覆盖安装。升级过程会：
 
 1. 停止旧 watcher、injector 和新 companion。
 2. 删除旧 CDP engine 与 `9335` 状态文件。

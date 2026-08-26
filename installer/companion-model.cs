@@ -119,6 +119,8 @@ namespace CodexUsageBar
         public Color SoftSurface;
         public Color Separator;
         public string FontFamily;
+        public ThemeFontFace FontFace;
+        public float FontSizePixels;
 
         internal static ThemePalette CreateDefault(bool dark)
         {
@@ -129,6 +131,7 @@ namespace CodexUsageBar
             theme.Ink = ink;
             theme.Accent = Color.FromArgb(255, 99, 99);
             theme.FontFamily = "Inter";
+            theme.FontSizePixels = 13f;
             theme.RecalculateDerived();
             return theme;
         }
@@ -146,6 +149,13 @@ namespace CodexUsageBar
         {
             return Color.FromArgb((int)Math.Round(alpha * 255), color.R, color.G, color.B);
         }
+    }
+
+    internal sealed class ThemeFontFace
+    {
+        public string Family = String.Empty;
+        public string FullName = String.Empty;
+        public string PostscriptName = String.Empty;
     }
 
     internal sealed class ThemeSet
@@ -215,6 +225,16 @@ namespace CodexUsageBar
                     if (value == "light" || value == "dark" || value == "system") set.Appearance = value;
                     continue;
                 }
+                if (String.Equals(section, "desktop", StringComparison.OrdinalIgnoreCase) && String.Equals(key, "sansFontSize", StringComparison.OrdinalIgnoreCase))
+                {
+                    float pixels;
+                    if (Single.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture, out pixels) && pixels > 0 && pixels <= 96)
+                    {
+                        set.Light.FontSizePixels = pixels;
+                        set.Dark.FontSizePixels = pixels;
+                    }
+                    continue;
+                }
                 ThemePalette theme = null;
                 if (section.StartsWith("desktop.appearanceLightChromeTheme", StringComparison.OrdinalIgnoreCase)) theme = set.Light;
                 if (section.StartsWith("desktop.appearanceDarkChromeTheme", StringComparison.OrdinalIgnoreCase)) theme = set.Dark;
@@ -227,9 +247,39 @@ namespace CodexUsageBar
                     theme.RecalculateDerived();
                 }
                 else if (String.Equals(key, "accent", StringComparison.OrdinalIgnoreCase) && TryColor(value, out parsed)) theme.Accent = parsed;
-                else if (section.EndsWith(".fonts", StringComparison.OrdinalIgnoreCase) && String.Equals(key, "ui", StringComparison.OrdinalIgnoreCase) && value.Length > 0) theme.FontFamily = value;
+                else if (section.EndsWith(".fonts", StringComparison.OrdinalIgnoreCase) && String.Equals(key, "ui", StringComparison.OrdinalIgnoreCase) && value.Length > 0)
+                    theme.FontFamily = FirstFontFamily(value);
+                else if (section.EndsWith(".fonts.uiFace", StringComparison.OrdinalIgnoreCase))
+                {
+                    if (theme.FontFace == null) theme.FontFace = new ThemeFontFace();
+                    if (String.Equals(key, "family", StringComparison.OrdinalIgnoreCase)) theme.FontFace.Family = value;
+                    else if (String.Equals(key, "fullName", StringComparison.OrdinalIgnoreCase)) theme.FontFace.FullName = value;
+                    else if (String.Equals(key, "postscriptName", StringComparison.OrdinalIgnoreCase)) theme.FontFace.PostscriptName = value;
+                }
             }
             return set;
+        }
+
+        private static string FirstFontFamily(string value)
+        {
+            string input = (value ?? String.Empty).Trim();
+            char quote = '\0';
+            int end = input.Length;
+            for (int i = 0; i < input.Length; i++)
+            {
+                char current = input[i];
+                if (quote != '\0')
+                {
+                    if (current == quote && (i == 0 || input[i - 1] != '\\')) quote = '\0';
+                }
+                else if (current == '"' || current == '\'') quote = current;
+                else if (current == ',') { end = i; break; }
+            }
+            string family = input.Substring(0, end).Trim();
+            if (family.Length >= 2 && ((family[0] == '"' && family[family.Length - 1] == '"') ||
+                (family[0] == '\'' && family[family.Length - 1] == '\'')))
+                family = family.Substring(1, family.Length - 2);
+            return family.Replace("\\\"", "\"").Replace("\\\\", "\\").Trim();
         }
 
         internal static bool SystemUsesLightTheme()

@@ -9,12 +9,13 @@ using System.Text;
 using System.Threading;
 using System.Web.Script.Serialization;
 using System.Windows.Forms;
+using Microsoft.Win32;
 
 [assembly: AssemblyTitle("Codex Usage Bar")]
 [assembly: AssemblyProduct("Codex Usage Bar")]
 [assembly: AssemblyCompany("Codex Usage Bar")]
-[assembly: AssemblyVersion("0.6.1.0")]
-[assembly: AssemblyFileVersion("0.6.1.0")]
+[assembly: AssemblyVersion("0.6.2.0")]
+[assembly: AssemblyFileVersion("0.6.2.0")]
 
 namespace CodexUsageBar
 {
@@ -44,7 +45,7 @@ namespace CodexUsageBar
 
     internal static class CompanionHost
     {
-        internal const string Version = "0.6.1";
+        internal const string Version = "0.6.2";
         internal const string MutexName = "Local\\CodexUsageBarCompanion";
         internal const string ExitEventName = "Local\\CodexUsageBarExit";
 
@@ -205,6 +206,7 @@ namespace CodexUsageBar
             _exitItem.Click += delegate { BeginExit(); };
 
             _menu = new ContextMenuStrip();
+            _menu.Font = SystemFonts.MenuFont;
             _menu.Items.Add(_connectionItem);
             _menu.Items.Add(_connectionDetailItem);
             _menu.Items.Add(new ToolStripSeparator());
@@ -221,6 +223,7 @@ namespace CodexUsageBar
             {
                 try { _menu.BeginInvoke((MethodInvoker)CloseMenuIfInactive); } catch { }
             };
+            SystemEvents.UserPreferenceChanged += OnSystemUserPreferenceChanged;
 
             Icon icon = null;
             try { icon = Icon.ExtractAssociatedIcon(Application.ExecutablePath); } catch { }
@@ -319,6 +322,13 @@ namespace CodexUsageBar
         {
             if (!_menu.ContainsFocus && !_modeItem.DropDown.ContainsFocus && !_languageItem.DropDown.ContainsFocus)
                 _menu.Close(ToolStripDropDownCloseReason.AppFocusChange);
+        }
+
+        private void OnSystemUserPreferenceChanged(object sender, UserPreferenceChangedEventArgs e)
+        {
+            if (e.Category != UserPreferenceCategory.Menu && e.Category != UserPreferenceCategory.Window && e.Category != UserPreferenceCategory.General) return;
+            try { _dispatcher.BeginInvoke((MethodInvoker)delegate { _menu.Font = SystemFonts.MenuFont; }); }
+            catch { }
         }
 
         private void ToggleVisibility(object sender, EventArgs e)
@@ -721,6 +731,7 @@ namespace CodexUsageBar
         {
             if (disposing)
             {
+                try { SystemEvents.UserPreferenceChanged -= OnSystemUserPreferenceChanged; } catch { }
                 try { _presentationTimer.Stop(); } catch { }
                 try { _themeDebounce.Stop(); } catch { }
                 if (_themeWatcher != null) try { _themeWatcher.Dispose(); } catch { }
@@ -746,10 +757,13 @@ namespace CodexUsageBar
             Log.Disabled = true;
             try
             {
-                ThemeSet theme = ThemeReader.Parse("[desktop]\nappearanceTheme=\"dark\"\nlanguage=\"zh-Hant\"\n[desktop.appearanceDarkChromeTheme]\naccent=\"#3dcd6e\"\nink=\"#fcfcfc\"\nsurface=\"#111111\"\n[desktop.appearanceDarkChromeTheme.fonts]\nui=\"Inter\"");
+                ThemeSet theme = ThemeReader.Parse("[desktop]\nappearanceTheme=\"dark\"\nlanguage=\"zh-Hant\"\nsansFontSize=15\n[desktop.appearanceDarkChromeTheme]\naccent=\"#3dcd6e\"\nink=\"#fcfcfc\"\nsurface=\"#111111\"\n[desktop.appearanceDarkChromeTheme.fonts]\nui='\"PingFang SC\"'\n[desktop.appearanceDarkChromeTheme.fonts.uiFace]\nfamily=\"PingFang SC\"\nfullName=\"PingFang SC Semibold\"\npostscriptName=\"PingFangSC-Semibold\"");
                 Assert(theme.Appearance == "dark", "theme selection");
                 Assert(theme.Dark.Accent.R == 61 && theme.Dark.Accent.G == 205 && theme.Dark.Accent.B == 110, "accent parsing");
                 Assert(theme.Dark.Surface.R == 17, "surface parsing");
+                Assert(theme.Dark.FontFamily == "PingFang SC", "CSS font family parsing");
+                Assert(Math.Abs(theme.Dark.FontSizePixels - 15f) < 0.001f && Math.Abs(theme.Light.FontSizePixels - 15f) < 0.001f, "UI font size parsing");
+                Assert(theme.Dark.FontFace != null && theme.Dark.FontFace.PostscriptName == "PingFangSC-Semibold", "UI font face parsing");
                 Assert(Texts.Resolve(LanguageMode.FollowCodex, theme.Language).Chinese, "Codex Chinese-family language");
                 Assert(!Texts.Resolve(LanguageMode.FollowCodex, "fr-FR").Chinese, "unsupported language falls back to English");
                 Assert(Texts.Resolve(LanguageMode.Chinese, "en-US").Chinese, "language override");
@@ -778,9 +792,22 @@ namespace CodexUsageBar
                 using (var owner = new Form())
                 using (var overlay = new OverlayForm())
                 {
+                    overlay.ApplyTheme(theme.Dark);
+                    Assert(Math.Abs(overlay.UiFontSizeInPoints - 15f * 72f / 96f) < 0.01f, "configured UI font size");
+                    Assert(Math.Abs(overlay.CollapsedFontSizeInPoints - 16f * 72f / 96f) < 0.01f, "collapsed menu font size");
+                    ThemePalette oversized = ThemePalette.CreateDefault(true);
+                    oversized.FontSizePixels = 30f;
+                    overlay.ApplyTheme(oversized);
+                    Assert(Math.Abs(overlay.UiFontSizeInPoints - 16f * 72f / 96f) < 0.01f, "UI font size maximum");
+                    ThemePalette undersized = ThemePalette.CreateDefault(true);
+                    undersized.FontSizePixels = 5f;
+                    overlay.ApplyTheme(undersized);
+                    Assert(Math.Abs(overlay.UiFontSizeInPoints - 11f * 72f / 96f) < 0.01f, "UI font size minimum");
+                    overlay.ApplyTheme(theme.Dark);
                     overlay.ApplySnapshot(snapshot);
                     int collapsedWidth = overlay.Width;
                     Assert(overlay.Height == OverlayForm.ToolbarHeight - 2, "collapsed toolbar height");
+                    Assert(Math.Abs(OverlayForm.RingStrokeWidth - 4f) < 0.001f, "ring stroke width");
                     overlay.SetExpanded(true);
                     Assert(overlay.Width == collapsedWidth, "stable dynamic width");
                     overlay.SetMode(DisplayMode.Attached);

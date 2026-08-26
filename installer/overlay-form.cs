@@ -2,7 +2,10 @@ using System;
 using System.Collections.Generic;
 using System.Drawing;
 using System.Drawing.Drawing2D;
+using System.Drawing.Text;
 using System.Globalization;
+using System.IO;
+using System.Text.RegularExpressions;
 using System.Windows.Forms;
 
 namespace CodexUsageBar
@@ -12,7 +15,10 @@ namespace CodexUsageBar
         internal const int ToolbarHeight = 35;
         private const int CollapsedHeight = ToolbarHeight - 2;
         private const int ExpandedHeight = CollapsedHeight + 81;
-        private const float RingStrokeWidth = 2f;
+        private const float MenuFontSizePixels = 16f;
+        private const float MinimumUiFontSizePixels = 11f;
+        private const float MaximumUiFontSizePixels = 16f;
+        internal const float RingStrokeWidth = 4f;
         private UsageSnapshot _snapshot = new UsageSnapshot();
         private ThemePalette _theme = ThemePalette.CreateDefault(true);
         private Texts _texts = new Texts();
@@ -24,6 +30,10 @@ namespace CodexUsageBar
         private Font _smallFont;
         private Font _smallBoldFont;
         private Font _boldFont;
+        private PrivateFontCollection _normalPrivateFonts;
+        private PrivateFontCollection _emphasisPrivateFonts;
+        private static readonly object FontCacheGate = new object();
+        private static List<UserFontFace> _userFontFaces;
 
         internal event Action OverlaySizeChanged;
         internal event Action<int, int> IndependentPositionChanged;
@@ -142,7 +152,7 @@ namespace CodexUsageBar
                 string compactReset = Formatters.ResetTime(window.ResetsAt, _texts.Chinese, true);
                 string fullReset = Formatters.ResetTime(window.ResetsAt, _texts.Chinese, false);
                 string label = IsFiveHour(window) ? _texts.FiveHour : _texts.Weekly;
-                int collapsed = 10 + RingOuterDiameter() + 6 + MeasureTextWidth(percent, _boldFont) + 7 + MeasureTextWidth(compactReset, _smallBoldFont) + 10;
+                int collapsed = 10 + RingOuterDiameter() + 6 + MeasureTextWidth(percent, _boldFont) + 7 + MeasureTextWidth(compactReset, _boldFont) + 10;
                 int detail = 10 + MeasureTextWidth(label, _smallFont) + 8 + MeasureTextWidth(percent, _smallBoldFont) + 10;
                 int reset = 10 + MeasureTextWidth(fullReset, _smallFont) + 10;
                 widths[i] = Math.Max(112, Math.Max(collapsed, Math.Max(detail, reset)));
@@ -192,21 +202,210 @@ namespace CodexUsageBar
 
         private void RebuildFonts()
         {
-            if (_smallFont != null) _smallFont.Dispose();
-            if (_smallBoldFont != null) _smallBoldFont.Dispose();
-            if (_boldFont != null) _boldFont.Dispose();
-            string family = String.IsNullOrWhiteSpace(_theme.FontFamily) ? "Segoe UI" : _theme.FontFamily;
+            DisposeFonts();
+            string family = String.IsNullOrWhiteSpace(_theme.FontFamily) ? "Segoe UI" : _theme.FontFamily.Trim();
+            string faceName = _theme.FontFace == null ? String.Empty : _theme.FontFace.FullName;
+            string systemName = String.IsNullOrWhiteSpace(faceName) ? family : faceName.Trim();
+            FontFamily normalFamily = null;
+            FontFamily emphasisFamily = null;
+            string normalName = null;
+            string emphasisName = null;
+            if (IsSystemFont(systemName))
+            {
+                normalName = systemName;
+                emphasisName = systemName;
+            }
+            else if (TryLoadUserFontFamilies(family, _theme.FontFace, out normalFamily, out emphasisFamily))
+            {
+                normalName = normalFamily.Name;
+                emphasisName = emphasisFamily.Name;
+            }
+            else if (IsSystemFont(family)) normalName = emphasisName = family;
+            else normalName = emphasisName = "Segoe UI";
+
+            float uiPixels = Math.Min(MaximumUiFontSizePixels, Math.Max(MinimumUiFontSizePixels, _theme.FontSizePixels));
+            float uiPoints = uiPixels * 72f / 96f;
+            float menuPoints = MenuFontSizePixels * 72f / 96f;
+            CreateFonts(uiPoints, menuPoints, normalFamily, emphasisFamily, normalName, emphasisName);
+            Log.Write("overlay font configured=" + family + " resolved=" + _smallFont.FontFamily.Name +
+                " uiPx=" + uiPixels.ToString("0.##", CultureInfo.InvariantCulture) +
+                " uiPt=" + _smallFont.SizeInPoints.ToString("0.##", CultureInfo.InvariantCulture) +
+                " menuPx=" + MenuFontSizePixels.ToString("0.##", CultureInfo.InvariantCulture) +
+                " menuPt=" + _boldFont.SizeInPoints.ToString("0.##", CultureInfo.InvariantCulture));
+        }
+
+        private void CreateFonts(float uiPoints, float menuPoints, FontFamily normalFamily, FontFamily emphasisFamily, string normalName, string emphasisName)
+        {
+            _smallFont = normalFamily == null
+                ? new Font(normalName, uiPoints, FontStyle.Regular, GraphicsUnit.Point)
+                : new Font(normalFamily, uiPoints, FontStyle.Regular, GraphicsUnit.Point);
+            _smallBoldFont = emphasisFamily == null
+                ? new Font(emphasisName, uiPoints, FontStyle.Bold, GraphicsUnit.Point)
+                : new Font(emphasisFamily, uiPoints, FontStyle.Regular, GraphicsUnit.Point);
+            _boldFont = emphasisFamily == null
+                ? new Font(emphasisName, menuPoints, FontStyle.Bold, GraphicsUnit.Point)
+                : new Font(emphasisFamily, menuPoints, FontStyle.Regular, GraphicsUnit.Point);
+        }
+
+        private static bool IsSystemFont(string name)
+        {
+            if (String.IsNullOrWhiteSpace(name)) return false;
             try
             {
-                _smallFont = new Font(family, 8.25f, FontStyle.Regular, GraphicsUnit.Point);
-                _smallBoldFont = new Font(family, 8.25f, FontStyle.Bold, GraphicsUnit.Point);
-                _boldFont = new Font(family, 9.25f, FontStyle.Bold, GraphicsUnit.Point);
+                using (var font = new Font(name, 9f, FontStyle.Regular, GraphicsUnit.Point))
+                    return NormalizeFontName(font.FontFamily.Name) == NormalizeFontName(name);
+            }
+            catch { return false; }
+        }
+
+        private bool TryLoadUserFontFamilies(string family, ThemeFontFace selectedFace, out FontFamily normalFamily, out FontFamily emphasisFamily)
+        {
+            normalFamily = null;
+            emphasisFamily = null;
+            UserFontFace normal = FindUserFontFace(family, selectedFace);
+            if (normal == null) return false;
+            UserFontFace emphasis = FindHeavierUserFontFace(family, normal) ?? normal;
+            try
+            {
+                _normalPrivateFonts = new PrivateFontCollection();
+                _normalPrivateFonts.AddFontFile(normal.Path);
+                _emphasisPrivateFonts = new PrivateFontCollection();
+                _emphasisPrivateFonts.AddFontFile(emphasis.Path);
+                if (_normalPrivateFonts.Families.Length == 0 || _emphasisPrivateFonts.Families.Length == 0) return false;
+                normalFamily = _normalPrivateFonts.Families[0];
+                emphasisFamily = _emphasisPrivateFonts.Families[0];
+                return true;
             }
             catch
             {
-                _smallFont = new Font("Segoe UI", 8.25f, FontStyle.Regular, GraphicsUnit.Point);
-                _smallBoldFont = new Font("Segoe UI", 8.25f, FontStyle.Bold, GraphicsUnit.Point);
-                _boldFont = new Font("Segoe UI", 9.25f, FontStyle.Bold, GraphicsUnit.Point);
+                if (_normalPrivateFonts != null) { _normalPrivateFonts.Dispose(); _normalPrivateFonts = null; }
+                if (_emphasisPrivateFonts != null) { _emphasisPrivateFonts.Dispose(); _emphasisPrivateFonts = null; }
+                return false;
+            }
+        }
+
+        private static UserFontFace FindUserFontFace(string family, ThemeFontFace selectedFace)
+        {
+            List<UserFontFace> matches = MatchingUserFonts(family);
+            if (matches.Count == 0) return null;
+            string postscript = NormalizeFontName(selectedFace == null ? null : selectedFace.PostscriptName);
+            string fullName = NormalizeFontName(selectedFace == null ? null : selectedFace.FullName);
+            if (postscript.Length > 0 || fullName.Length > 0)
+            {
+                foreach (UserFontFace candidate in matches)
+                    if ((postscript.Length > 0 && candidate.FileName == postscript) ||
+                        (fullName.Length > 0 && candidate.Names.Contains(fullName))) return candidate;
+            }
+            string regular = NormalizeFontName(family) + "regular";
+            foreach (UserFontFace candidate in matches)
+                if (candidate.FileName == regular || candidate.FileName.EndsWith("regular", StringComparison.Ordinal)) return candidate;
+            UserFontFace closest = matches[0];
+            foreach (UserFontFace candidate in matches)
+                if (Math.Abs(candidate.Weight - 400) < Math.Abs(closest.Weight - 400)) closest = candidate;
+            return closest;
+        }
+
+        private static UserFontFace FindHeavierUserFontFace(string family, UserFontFace normal)
+        {
+            UserFontFace heavier = null;
+            foreach (UserFontFace candidate in MatchingUserFonts(family))
+            {
+                if (candidate.Weight <= normal.Weight) continue;
+                if (heavier == null || candidate.Weight < heavier.Weight) heavier = candidate;
+            }
+            return heavier;
+        }
+
+        private static List<UserFontFace> MatchingUserFonts(string family)
+        {
+            string wanted = NormalizeFontName(family);
+            var matches = new List<UserFontFace>();
+            foreach (UserFontFace candidate in UserFontFaces())
+                if (candidate.Names.Contains(wanted)) matches.Add(candidate);
+            return matches;
+        }
+
+        private static List<UserFontFace> UserFontFaces()
+        {
+            lock (FontCacheGate)
+            {
+                if (_userFontFaces != null) return _userFontFaces;
+                var result = new List<UserFontFace>();
+                string directory = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), @"Microsoft\Windows\Fonts");
+                if (Directory.Exists(directory))
+                {
+                    foreach (string path in Directory.GetFiles(directory))
+                    {
+                        string extension = Path.GetExtension(path);
+                        if (!String.Equals(extension, ".ttf", StringComparison.OrdinalIgnoreCase) &&
+                            !String.Equals(extension, ".otf", StringComparison.OrdinalIgnoreCase)) continue;
+                        try
+                        {
+                            var glyph = new System.Windows.Media.GlyphTypeface(new Uri(path, UriKind.Absolute));
+                            var names = new HashSet<string>(StringComparer.Ordinal);
+                            foreach (string value in glyph.FamilyNames.Values) names.Add(NormalizeFontName(value));
+                            foreach (string value in glyph.Win32FamilyNames.Values) names.Add(NormalizeFontName(value));
+                            string fileName = NormalizeFontName(Path.GetFileNameWithoutExtension(path));
+                            names.Remove(String.Empty);
+                            result.Add(new UserFontFace(path, fileName, names, FontWeight(fileName, glyph.Weight.ToOpenTypeWeight())));
+                        }
+                        catch { }
+                    }
+                }
+                _userFontFaces = result;
+                return _userFontFaces;
+            }
+        }
+
+        private static int FontWeight(string name, int fallback)
+        {
+            if (name.EndsWith("ultralight", StringComparison.Ordinal) || name.EndsWith("extralight", StringComparison.Ordinal)) return 200;
+            if (name.EndsWith("thin", StringComparison.Ordinal)) return 300;
+            if (name.EndsWith("light", StringComparison.Ordinal)) return 350;
+            if (name.EndsWith("regular", StringComparison.Ordinal) || name.EndsWith("normal", StringComparison.Ordinal)) return 400;
+            if (name.EndsWith("medium", StringComparison.Ordinal)) return 500;
+            if (name.EndsWith("semibold", StringComparison.Ordinal) || name.EndsWith("demibold", StringComparison.Ordinal)) return 600;
+            if (name.EndsWith("extrabold", StringComparison.Ordinal)) return 800;
+            if (name.EndsWith("bold", StringComparison.Ordinal)) return 700;
+            if (name.EndsWith("black", StringComparison.Ordinal) || name.EndsWith("heavy", StringComparison.Ordinal)) return 900;
+            return fallback;
+        }
+
+        private static string NormalizeFontName(string value)
+        {
+            return Regex.Replace(value ?? String.Empty, @"[^\p{L}\p{Nd}]", String.Empty).ToLowerInvariant();
+        }
+
+        private void DisposeFontObjects()
+        {
+            if (_smallFont != null) { _smallFont.Dispose(); _smallFont = null; }
+            if (_smallBoldFont != null) { _smallBoldFont.Dispose(); _smallBoldFont = null; }
+            if (_boldFont != null) { _boldFont.Dispose(); _boldFont = null; }
+        }
+
+        private void DisposeFonts()
+        {
+            DisposeFontObjects();
+            if (_normalPrivateFonts != null) { _normalPrivateFonts.Dispose(); _normalPrivateFonts = null; }
+            if (_emphasisPrivateFonts != null) { _emphasisPrivateFonts.Dispose(); _emphasisPrivateFonts = null; }
+        }
+
+        internal float UiFontSizeInPoints { get { return _smallFont.SizeInPoints; } }
+        internal float CollapsedFontSizeInPoints { get { return _boldFont.SizeInPoints; } }
+
+        private sealed class UserFontFace
+        {
+            internal readonly string Path;
+            internal readonly string FileName;
+            internal readonly HashSet<string> Names;
+            internal readonly int Weight;
+
+            internal UserFontFace(string path, string fileName, HashSet<string> names, int weight)
+            {
+                Path = path;
+                FileName = fileName;
+                Names = names;
+                Weight = weight;
             }
         }
 
@@ -248,7 +447,7 @@ namespace CodexUsageBar
                 int percentWidth = MeasureTextWidth(percent, _boldFont);
                 DrawText(graphics, percent, _boldFont, _theme.Accent,
                     new RectangleF(left + 10 + ringOuter + 6, 0, percentWidth, ClientSize.Height), StringAlignment.Near, StringAlignment.Center);
-                DrawText(graphics, Formatters.ResetTime(window.ResetsAt, _texts.Chinese, true), _smallBoldFont,
+                DrawText(graphics, Formatters.ResetTime(window.ResetsAt, _texts.Chinese, true), _boldFont,
                     Blend(_theme.Surface, _theme.Ink, 0.68), new RectangleF(left + 10 + ringOuter + 13 + percentWidth, 1,
                         columnWidth - 33 - ringOuter - percentWidth, ClientSize.Height), StringAlignment.Near, StringAlignment.Center);
                 left += columnWidth;
@@ -419,9 +618,7 @@ namespace CodexUsageBar
         {
             if (disposing)
             {
-                if (_smallFont != null) _smallFont.Dispose();
-                if (_smallBoldFont != null) _smallBoldFont.Dispose();
-                if (_boldFont != null) _boldFont.Dispose();
+                DisposeFonts();
             }
             base.Dispose(disposing);
         }

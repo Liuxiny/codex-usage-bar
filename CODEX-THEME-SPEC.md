@@ -51,6 +51,8 @@
 | 重点数值字重 | `650` |
 | 数值排版 | `font-variant-numeric: tabular-nums` |
 
+悬浮窗不直接把菜单项的 `13px` 用作所有文字字号。收起态对应 Codex 菜单层的计算字号 `16px`；展开态读取 `desktop.sansFontSize`，并钳制在 Codex 支持的 `11–16px`。字体家族和字体面/字重在两种状态下保持一致。
+
 ### 3.3 弹出层
 
 | Token | 默认值 |
@@ -97,6 +99,9 @@
 | `desktop.appearanceDarkChromeTheme.accent` | 深色 `accent` | 有效 CSS 颜色才覆盖 |
 | `desktop.appearanceLightChromeTheme.fonts.ui` | 浅色 `fontFamily` | 配置字体在前，默认字体栈作回退 |
 | `desktop.appearanceDarkChromeTheme.fonts.ui` | 深色 `fontFamily` | 配置字体在前，默认字体栈作回退 |
+| `desktop.appearanceLightChromeTheme.fonts.uiFace` | 浅色具体字体面/字重 | 优先匹配 `postscriptName`、`fullName`，缺失时使用字体族默认面 |
+| `desktop.appearanceDarkChromeTheme.fonts.uiFace` | 深色具体字体面/字重 | 优先匹配 `postscriptName`、`fullName`，缺失时使用字体族默认面 |
+| `desktop.sansFontSize` | 展开态 UI 字号 | 有效数值钳制为 `11–16px`；收起态保持 `16px` |
 
 `ink` 更新后的派生颜色：
 
@@ -107,7 +112,6 @@
 
 ## 5. 已识别但不直接覆盖的配置
 
-- `desktop.sansFontSize`：Codex 基础 UI 字号，不等于快照中的菜单项 `13px`。未确认换算关系前不覆盖 `fontSize`。
 - `contrast`：缺少官方换算规则。保留为配置元数据，不凭经验修改颜色。
 - `opaqueWindows`：控制窗口材质，不改变组件自身颜色 token。
 - `fonts.code`：仅用于代码内容；Usage Bar 无代码内容时忽略。
@@ -124,7 +128,8 @@ resolvedDark  = shallowCopy(defaultDark)
 
 读取 config.toml
   选择 appearanceTheme
-  覆盖对应主题中存在且有效的 surface、ink、accent、fonts.ui
+  覆盖对应主题中存在且有效的 surface、ink、accent、fonts.ui、fonts.uiFace
+  将 sansFontSize 应用于展开态并限制在 11–16px；收起态使用 16px
   ink 被覆盖时重算该主题派生颜色
   其余 token 保留默认值
 

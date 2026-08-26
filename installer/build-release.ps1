@@ -142,6 +142,17 @@ function Find-FrameworkReference {
             Sort-Object FullName -Descending | Select-Object -First 1
         if ($found) { return $found.FullName }
     }
+
+    if ($env:WINDIR) {
+        $assemblyBase = [IO.Path]::GetFileNameWithoutExtension($AssemblyName)
+        foreach ($gacKind in @('GAC_MSIL', 'GAC_32', 'GAC_64')) {
+            $gacRoot = Join-Path $env:WINDIR "Microsoft.NET\assembly\$gacKind\$assemblyBase"
+            if (-not (Test-Path -LiteralPath $gacRoot -PathType Container)) { continue }
+            $found = Get-ChildItem -LiteralPath $gacRoot -Filter $AssemblyName -File -Recurse -ErrorAction SilentlyContinue |
+                Sort-Object FullName -Descending | Select-Object -First 1
+            if ($found) { return $found.FullName }
+        }
+    }
     return $null
 }
 
@@ -152,13 +163,19 @@ if (-not $CSharpCompiler) {
 $SystemWindowsFormsReference = Find-FrameworkReference -CompilerPath $CSharpCompiler -AssemblyName 'System.Windows.Forms.dll'
 $SystemDrawingReference = Find-FrameworkReference -CompilerPath $CSharpCompiler -AssemblyName 'System.Drawing.dll'
 $SystemWebExtensionsReference = Find-FrameworkReference -CompilerPath $CSharpCompiler -AssemblyName 'System.Web.Extensions.dll'
+$PresentationCoreReference = Find-FrameworkReference -CompilerPath $CSharpCompiler -AssemblyName 'PresentationCore.dll'
+$WindowsBaseReference = Find-FrameworkReference -CompilerPath $CSharpCompiler -AssemblyName 'WindowsBase.dll'
 if (-not $SystemWindowsFormsReference) { throw 'System.Windows.Forms.dll was not found for the tray watcher host build.' }
 if (-not $SystemDrawingReference) { throw 'System.Drawing.dll was not found for the tray watcher host build.' }
 if (-not $SystemWebExtensionsReference) { throw 'System.Web.Extensions.dll was not found for JSON support.' }
+if (-not $PresentationCoreReference) { throw 'PresentationCore.dll was not found for Windows font metadata.' }
+if (-not $WindowsBaseReference) { throw 'WindowsBase.dll was not found for Windows font metadata.' }
 Write-Host "Using C# compiler: $CSharpCompiler"
 Write-Host "Using System.Windows.Forms: $SystemWindowsFormsReference"
 Write-Host "Using System.Drawing: $SystemDrawingReference"
 Write-Host "Using System.Web.Extensions: $SystemWebExtensionsReference"
+Write-Host "Using PresentationCore: $PresentationCoreReference"
+Write-Host "Using WindowsBase: $WindowsBaseReference"
 
 if (-not $SkipInstaller) {
     $InnoCompiler = Find-InnoSetupCompiler -ExplicitPath $InnoCompiler
@@ -199,6 +216,8 @@ try {
         "/reference:$SystemWindowsFormsReference" `
         "/reference:$SystemDrawingReference" `
         "/reference:$SystemWebExtensionsReference" `
+        "/reference:$PresentationCoreReference" `
+        "/reference:$WindowsBaseReference" `
         $companionSources
     if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $companionExe -PathType Leaf)) {
         throw "Companion C# compilation failed with exit code $LASTEXITCODE"
