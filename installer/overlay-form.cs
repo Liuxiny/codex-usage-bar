@@ -14,10 +14,10 @@ namespace CodexUsageBar
     {
         internal const int ToolbarHeight = 35;
         private const int CollapsedHeight = ToolbarHeight - 2;
-        private const int ExpandedHeight = CollapsedHeight + 81;
         private const float MenuFontSizePixels = 16f;
         private const float MinimumUiFontSizePixels = 11f;
         private const float MaximumUiFontSizePixels = 16f;
+        internal const int RingOuterDiameterPixels = 18;
         internal const float RingStrokeWidth = 4f;
         private UsageSnapshot _snapshot = new UsageSnapshot();
         private ThemePalette _theme = ThemePalette.CreateDefault(true);
@@ -128,9 +128,25 @@ namespace CodexUsageBar
         internal void SetExpanded(bool expanded)
         {
             _expanded = expanded;
-            Size next = new Size(DesiredWidth(), expanded ? ExpandedHeight : CollapsedHeight);
+            Size next = new Size(DesiredWidth(), expanded ? DesiredExpandedHeight() : CollapsedHeight);
             if (ClientSize != next) ClientSize = next;
             Invalidate();
+        }
+
+        private int DesiredExpandedHeight()
+        {
+            int lineHeight = ExpandedLineHeight();
+            int detailTop = CollapsedHeight + 8;
+            int resetTop = detailTop + lineHeight + 4;
+            int footerTop = resetTop + lineHeight + 8;
+            int footerTextTop = footerTop + 7;
+            return footerTextTop + lineHeight + 10 + 7;
+        }
+
+        private int ExpandedLineHeight()
+        {
+            return Math.Max(18, TextRenderer.MeasureText("Ag中", _smallFont,
+                new Size(Int32.MaxValue, Int32.MaxValue), TextFormatFlags.NoPadding | TextFormatFlags.SingleLine).Height);
         }
 
         private int DesiredWidth()
@@ -183,7 +199,7 @@ namespace CodexUsageBar
 
         private int RingOuterDiameter()
         {
-            return Math.Max(8, MeasureTextWidth("00", _boldFont) - 6);
+            return RingOuterDiameterPixels;
         }
 
         private string TokenText()
@@ -392,6 +408,7 @@ namespace CodexUsageBar
 
         internal float UiFontSizeInPoints { get { return _smallFont.SizeInPoints; } }
         internal float CollapsedFontSizeInPoints { get { return _boldFont.SizeInPoints; } }
+        internal int ExpandedYOffset { get { return _expanded ? 1 : 0; } }
 
         private sealed class UserFontFace
         {
@@ -414,7 +431,6 @@ namespace CodexUsageBar
             base.OnPaint(e);
             Graphics graphics = e.Graphics;
             graphics.SmoothingMode = SmoothingMode.AntiAlias;
-            graphics.TextRenderingHint = System.Drawing.Text.TextRenderingHint.ClearTypeGridFit;
             Rectangle bounds = new Rectangle(0, 0, ClientSize.Width - 1, ClientSize.Height - 1);
             using (GraphicsPath path = RoundedRectangle(bounds, 8))
             using (var surface = new SolidBrush(_theme.Surface))
@@ -449,7 +465,7 @@ namespace CodexUsageBar
                     new RectangleF(left + 10 + ringOuter + 6, 0, percentWidth, ClientSize.Height), StringAlignment.Near, StringAlignment.Center);
                 DrawText(graphics, Formatters.ResetTime(window.ResetsAt, _texts.Chinese, true), _boldFont,
                     Blend(_theme.Surface, _theme.Ink, 0.68), new RectangleF(left + 10 + ringOuter + 13 + percentWidth, 1,
-                        columnWidth - 33 - ringOuter - percentWidth, ClientSize.Height), StringAlignment.Near, StringAlignment.Center);
+                        columnWidth - 33 - ringOuter - percentWidth, ClientSize.Height - 1), StringAlignment.Near, StringAlignment.Center);
                 left += columnWidth;
             }
             if (windows.Count == 2)
@@ -465,8 +481,9 @@ namespace CodexUsageBar
             float left = 0;
             const float barHeight = 4;
             float barTop = (CollapsedHeight - barHeight) / 2f;
-            int detailTop = CollapsedHeight + 6;
-            int resetTop = CollapsedHeight + 25;
+            int lineHeight = ExpandedLineHeight();
+            int detailTop = CollapsedHeight + 8;
+            int resetTop = detailTop + lineHeight + 4;
             for (int i = 0; i < windows.Count; i++)
             {
                 float columnWidth = widths[i];
@@ -475,24 +492,25 @@ namespace CodexUsageBar
                 string label = IsFiveHour(window) ? _texts.FiveHour : _texts.Weekly;
                 int labelWidth = MeasureTextWidth(label, _smallFont);
                 DrawText(graphics, label, _smallFont, _theme.Ink,
-                    new RectangleF(left + 10, detailTop, labelWidth, 18), StringAlignment.Near);
+                    new RectangleF(left + 10, detailTop, labelWidth, lineHeight), StringAlignment.Near);
                 DrawText(graphics, Math.Round(window.Remaining, MidpointRounding.AwayFromZero).ToString(CultureInfo.InvariantCulture) + "%",
                     _smallBoldFont, _theme.Accent, new RectangleF(left + 10 + labelWidth + 8, detailTop,
-                        columnWidth - 28 - labelWidth, 18), StringAlignment.Near);
+                        columnWidth - 28 - labelWidth, lineHeight), StringAlignment.Near);
                 DrawText(graphics, Formatters.ResetTime(window.ResetsAt, _texts.Chinese, false), _smallFont,
-                    Blend(_theme.Surface, _theme.Ink, 0.70), new RectangleF(left + 10, resetTop, columnWidth - 20, 18), StringAlignment.Near);
+                    Blend(_theme.Surface, _theme.Ink, 0.70), new RectangleF(left + 10, resetTop, columnWidth - 20, lineHeight), StringAlignment.Near);
                 left += columnWidth;
             }
+            int footerTop = resetTop + lineHeight + 8;
             if (windows.Count == 2)
             {
                 using (var separator = new Pen(Blend(_theme.Surface, _theme.Ink, _theme.Dark ? 0.13 : 0.09), 1f))
-                    graphics.DrawLine(separator, widths[0], 8, widths[0], CollapsedHeight + 43);
+                    graphics.DrawLine(separator, widths[0], 8, widths[0], footerTop - 8);
             }
-            int footerTop = CollapsedHeight + 49;
             using (var footer = new Pen(Blend(_theme.Surface, _theme.Ink, _theme.Dark ? 0.15 : 0.11), 1f))
                 graphics.DrawLine(footer, 10, footerTop, ClientSize.Width - 10, footerTop);
             DrawText(graphics, TokenText(), _smallFont, _theme.Ink,
-                new RectangleF(10, footerTop + 10, ClientSize.Width - 20, 18), StringAlignment.Near);
+                new RectangleF(10, footerTop + 7, ClientSize.Width - 20, lineHeight + 10),
+                StringAlignment.Near, StringAlignment.Center);
         }
 
         private bool IsFiveHour(LimitWindow window)
@@ -535,15 +553,14 @@ namespace CodexUsageBar
         private static void DrawText(Graphics graphics, string value, Font font, Color color, RectangleF rectangle,
             StringAlignment alignment, StringAlignment lineAlignment)
         {
-            using (var brush = new SolidBrush(color))
-            using (var format = new StringFormat())
-            {
-                format.Alignment = alignment;
-                format.LineAlignment = lineAlignment;
-                format.Trimming = StringTrimming.EllipsisCharacter;
-                format.FormatFlags = StringFormatFlags.NoWrap;
-                graphics.DrawString(value ?? String.Empty, font, brush, rectangle, format);
-            }
+            TextFormatFlags flags = TextFormatFlags.NoPadding | TextFormatFlags.SingleLine |
+                TextFormatFlags.EndEllipsis | TextFormatFlags.PreserveGraphicsClipping |
+                TextFormatFlags.PreserveGraphicsTranslateTransform;
+            if (alignment == StringAlignment.Center) flags |= TextFormatFlags.HorizontalCenter;
+            else if (alignment == StringAlignment.Far) flags |= TextFormatFlags.Right;
+            if (lineAlignment == StringAlignment.Center) flags |= TextFormatFlags.VerticalCenter;
+            else if (lineAlignment == StringAlignment.Far) flags |= TextFormatFlags.Bottom;
+            TextRenderer.DrawText(graphics, value ?? String.Empty, font, Rectangle.Round(rectangle), color, flags);
         }
 
         private static Color Blend(Color background, Color foreground, double amount)

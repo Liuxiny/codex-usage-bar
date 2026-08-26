@@ -472,7 +472,8 @@ namespace CodexUsageBar
                 return;
             }
             int x = client.Left + Math.Max(0, (client.Width - _overlay.Width) / 2);
-            int y = client.Top + Math.Max(0, (OverlayForm.ToolbarHeight - Math.Min(_overlay.Height, OverlayForm.ToolbarHeight)) / 2);
+            int y = client.Top + Math.Max(0, (OverlayForm.ToolbarHeight - Math.Min(_overlay.Height, OverlayForm.ToolbarHeight)) / 2) +
+                _overlay.ExpandedYOffset;
             _overlay.SetProgrammaticLocation(x, y);
             _overlay.BringAboveCodex(_codexWindow, false);
             ShowOverlay(codexForeground ? "attached-active" : "attached-background");
@@ -509,7 +510,7 @@ namespace CodexUsageBar
             else desired = new Point(_settings.IndependentX, _settings.IndependentY);
             Rectangle nearest = Screen.FromPoint(desired).WorkingArea;
             int x = Math.Max(nearest.Left, Math.Min(desired.X, nearest.Right - _overlay.Width));
-            int y = Math.Max(nearest.Top, Math.Min(desired.Y, nearest.Bottom - _overlay.Height));
+            int y = Math.Max(nearest.Top, Math.Min(desired.Y + _overlay.ExpandedYOffset, nearest.Bottom - _overlay.Height));
             _overlay.SetProgrammaticLocation(x, y);
         }
 
@@ -807,9 +808,13 @@ namespace CodexUsageBar
                     overlay.ApplySnapshot(snapshot);
                     int collapsedWidth = overlay.Width;
                     Assert(overlay.Height == OverlayForm.ToolbarHeight - 2, "collapsed toolbar height");
+                    Assert(overlay.ExpandedYOffset == 0, "collapsed vertical offset");
                     Assert(Math.Abs(OverlayForm.RingStrokeWidth - 4f) < 0.001f, "ring stroke width");
+                    Assert(OverlayForm.RingOuterDiameterPixels == 18, "ring outer diameter");
                     overlay.SetExpanded(true);
                     Assert(overlay.Width == collapsedWidth, "stable dynamic width");
+                    Assert(overlay.ExpandedYOffset == 1, "expanded vertical offset");
+                    using (var bitmap = new Bitmap(overlay.Width, overlay.Height)) overlay.DrawToBitmap(bitmap, overlay.ClientRectangle);
                     overlay.SetMode(DisplayMode.Attached);
                     IntPtr overlayHandle = overlay.Handle;
                     overlay.BringAboveCodex(owner.Handle, true);
