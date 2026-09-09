@@ -57,6 +57,7 @@ Source: "{#StageRoot}\README.md"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#StageRoot}\INSTALL-WINDOWS.md"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#StageRoot}\CODEX-THEME-SPEC.md"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#StageRoot}\LICENSE"; DestDir: "{app}"; Flags: ignoreversion
+Source: "{#StageRoot}\THIRD-PARTY-NOTICES.md"; DestDir: "{app}"; Flags: ignoreversion
 
 [InstallDelete]
 ; Remove the v0.4.13 Startup shortcut that launched hidden PowerShell.

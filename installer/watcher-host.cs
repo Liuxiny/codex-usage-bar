@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Drawing;
@@ -14,8 +14,8 @@ using Microsoft.Win32;
 [assembly: AssemblyTitle("Codex Usage Bar")]
 [assembly: AssemblyProduct("Codex Usage Bar")]
 [assembly: AssemblyCompany("Codex Usage Bar")]
-[assembly: AssemblyVersion("0.6.3.0")]
-[assembly: AssemblyFileVersion("0.6.3.0")]
+[assembly: AssemblyVersion("0.7.5.0")]
+[assembly: AssemblyFileVersion("0.7.5.0")]
 
 namespace CodexUsageBar
 {
@@ -45,7 +45,7 @@ namespace CodexUsageBar
 
     internal static class CompanionHost
     {
-        internal const string Version = "0.6.3";
+        internal const string Version = "0.7.5";
         internal const string MutexName = "Local\\CodexUsageBarCompanion";
         internal const string ExitEventName = "Local\\CodexUsageBarExit";
 
@@ -114,6 +114,14 @@ namespace CodexUsageBar
     internal sealed class CompanionContext : ApplicationContext
     {
         private readonly string _settingsPath;
+        private readonly string _usageSettingsPath;
+        private readonly ToolStripMenuItem _usageSettingsItem;
+        private UsageSettingsForm _usageSettingsForm;
+        private Font _menuThemeFont;
+        private readonly CcSwitchClient _ccClient = new CcSwitchClient();
+        private string _usageSourceFingerprint;
+        private DateTime _nextCcQuery = DateTime.MinValue, _nextCcEvaluation = DateTime.MinValue;
+        private UsageSnapshot _ccSnapshot;
         private readonly string _hostStatePath;
         private readonly string _configPath;
         private readonly AppSettings _settings;
@@ -158,6 +166,7 @@ namespace CodexUsageBar
         internal CompanionContext(string stateRoot)
         {
             _settingsPath = Path.Combine(stateRoot, "settings.json");
+            _usageSettingsPath = Path.Combine(stateRoot, "usage-source.json");
             _hostStatePath = Path.Combine(stateRoot, "companion-state.json");
             string codexHome = Environment.GetEnvironmentVariable("CODEX_HOME");
             if (String.IsNullOrWhiteSpace(codexHome)) codexHome = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".codex");
@@ -202,21 +211,33 @@ namespace CodexUsageBar
             _startupItem.Click += ToggleStartup;
             _refreshItem = new ToolStripMenuItem(_texts.Refresh);
             _refreshItem.Click += RequestRefresh;
+            _usageSettingsItem = new ToolStripMenuItem(_texts.Chinese ? "数据源" : "Data source");
+            _usageSettingsItem.Click += delegate
+            {
+                if (_usageSettingsForm != null && !_usageSettingsForm.IsDisposed) { _usageSettingsForm.Activate(); return; }
+                _usageSettingsForm = new UsageSettingsForm(_usageSettingsPath, _texts.Chinese, _themes.Active);
+                _usageSettingsForm.FormClosed += delegate
+                {
+                    if (_usageSettingsForm.DialogResult == DialogResult.OK) RequestRefresh(null, EventArgs.Empty);
+                };
+                _usageSettingsForm.Show();
+            };
             _exitItem = new ToolStripMenuItem(_texts.Exit);
             _exitItem.Click += delegate { BeginExit(); };
 
             _menu = new ContextMenuStrip();
-            _menu.Font = SystemFonts.MenuFont;
             _menu.Items.Add(_connectionItem);
             _menu.Items.Add(_connectionDetailItem);
             _menu.Items.Add(new ToolStripSeparator());
             _menu.Items.Add(_refreshItem);
+            _menu.Items.Add(_usageSettingsItem);
             _menu.Items.Add(_showItem);
             _menu.Items.Add(_modeItem);
             _menu.Items.Add(_languageItem);
             _menu.Items.Add(_startupItem);
             _menu.Items.Add(new ToolStripSeparator());
             _menu.Items.Add(_exitItem);
+            ApplyNativeTheme();
             _menu.AutoClose = true;
             _menu.Opening += delegate { UpdateMenu(); };
             _menu.LostFocus += delegate
@@ -305,9 +326,21 @@ namespace CodexUsageBar
         {
             _themes = ThemeReader.Load(_configPath);
             _overlay.ApplyTheme(_themes.Active);
+            ApplyNativeTheme();
             if (_settings.Language == LanguageMode.FollowCodex) ApplyLanguage();
             RefreshPresentation();
             Log.Write("config reloaded appearance=" + _themes.Appearance + " language=" + (_themes.Language.Length == 0 ? "system" : _themes.Language));
+        }
+
+        private void ApplyNativeTheme()
+        {
+            Font previous = _menuThemeFont;
+            Font next = NativeTheme.UiFont(_themes.Active, 0, FontStyle.Regular);
+            if (previous != null && previous.Equals(next)) { next.Dispose(); next = previous; }
+            _menuThemeFont = next;
+            TrayThemeRenderer.Apply(_menu, _themes.Active, _menuThemeFont);
+            if (_usageSettingsForm != null && !_usageSettingsForm.IsDisposed) _usageSettingsForm.ApplyTheme(_themes.Active);
+            if (previous != null && previous != next) previous.Dispose();
         }
 
         private void OnTrayMouseUp(object sender, MouseEventArgs e)
@@ -327,7 +360,7 @@ namespace CodexUsageBar
         private void OnSystemUserPreferenceChanged(object sender, UserPreferenceChangedEventArgs e)
         {
             if (e.Category != UserPreferenceCategory.Menu && e.Category != UserPreferenceCategory.Window && e.Category != UserPreferenceCategory.General) return;
-            try { _dispatcher.BeginInvoke((MethodInvoker)delegate { _menu.Font = SystemFonts.MenuFont; }); }
+            try { _dispatcher.BeginInvoke((MethodInvoker)ApplyNativeTheme); }
             catch { }
         }
 
@@ -393,6 +426,7 @@ namespace CodexUsageBar
 
         private void UpdateMenu()
         {
+            _usageSettingsItem.Text = _texts.Chinese ? "数据源" : "Data source";
             _connectionItem.Text = _texts.Connection(_connection);
             _connectionDetailItem.Visible = !String.IsNullOrEmpty(_connectionDetail);
             _connectionDetailItem.Text = _connectionDetail;
@@ -435,6 +469,7 @@ namespace CodexUsageBar
         {
             string text = "Codex Usage Bar · " + (_connection == ConnectionKind.Connected ? (_texts.Chinese ? "已连接" : "Connected") : (_texts.Chinese ? "未连接" : "Disconnected"));
             LimitWindow tightest = _snapshot.Tightest;
+            if (_snapshot.IsThirdParty) text = "Codex Usage Bar · " + _snapshot.SourceName + (String.IsNullOrEmpty(_snapshot.SourceError) ? "" : " · !");
             if (_connection == ConnectionKind.Connected && tightest != null)
                 text += " · " + Math.Round(tightest.Remaining, MidpointRounding.AwayFromZero).ToString(CultureInfo.InvariantCulture) + "%";
             if (text.Length > 63) text = text.Substring(0, 63);
@@ -449,7 +484,7 @@ namespace CodexUsageBar
 
         private void RefreshPresentation()
         {
-            bool dataReady = _connection == ConnectionKind.Connected && _snapshot != null && _snapshot.DisplayWindows.Count > 0;
+            bool dataReady = _snapshot != null && (_snapshot.IsThirdParty || (_connection == ConnectionKind.Connected && _snapshot.DisplayWindows.Count > 0));
             if (!_settings.Visible || !dataReady)
             {
                 HideOverlay(!_settings.Visible ? "user-hidden" : "connection-or-data-unavailable");
@@ -471,8 +506,9 @@ namespace CodexUsageBar
                 HideOverlay("codex-window-unavailable");
                 return;
             }
+            _overlay.FollowWindowDpi(_codexWindow);
             int x = client.Left + Math.Max(0, (client.Width - _overlay.Width) / 2);
-            int y = client.Top + Math.Max(0, (OverlayForm.ToolbarHeight - Math.Min(_overlay.Height, OverlayForm.ToolbarHeight)) / 2) +
+            int y = client.Top + Math.Max(0, (_overlay.ScaledToolbarHeight - Math.Min(_overlay.Height, _overlay.ScaledToolbarHeight)) / 2) +
                 _overlay.ExpandedYOffset;
             _overlay.SetProgrammaticLocation(x, y);
             _overlay.BringAboveCodex(_codexWindow, false);
@@ -505,7 +541,7 @@ namespace CodexUsageBar
             if (_settings.IndependentX == Int32.MinValue || _settings.IndependentY == Int32.MinValue)
             {
                 Rectangle work = Screen.PrimaryScreen.WorkingArea;
-                desired = new Point(work.Right - _overlay.Width - 16, work.Bottom - _overlay.Height - 16);
+                desired = new Point(work.Right - _overlay.Width - _overlay.ScalePixels(16), work.Bottom - _overlay.Height - _overlay.ScalePixels(16));
             }
             else desired = new Point(_settings.IndependentX, _settings.IndependentY);
             Rectangle nearest = Screen.FromPoint(desired).WorkingArea;
@@ -531,12 +567,16 @@ namespace CodexUsageBar
                 if (!CodexLocator.HasRunningProcess())
                 {
                     StopClient();
+                    _usageSourceFingerprint = null;
+                    _ccClient.Clear();
                     snapshot = new UsageSnapshot();
                     PostConnection(ConnectionKind.NoCodex, String.Empty, snapshot);
                     failures = 0;
                     WaitWorker(3000);
                     continue;
                 }
+
+                if (HandleUsageSource()) { WaitWorker(5000); continue; }
 
                 if (_client == null || !_client.IsAlive)
                 {
@@ -602,6 +642,63 @@ namespace CodexUsageBar
                 WaitWorker(5000);
             }
             StopClient();
+        }
+
+        private bool HandleUsageSource()
+        {
+            CcProvider provider = null;
+            try
+            {
+                UsageSourceSettings settings = UsageSourceSettings.Load(_usageSettingsPath);
+                provider = settings.Resolve();
+                if (provider == null || provider.Official)
+                {
+                    if (_usageSourceFingerprint != null)
+                    {
+                        _usageSourceFingerprint = null; _ccClient.Clear(); _ccSnapshot = null;
+                        PostConnection(ConnectionKind.Connecting, String.Empty, new UsageSnapshot());
+                    }
+                    return false;
+                }
+                StopClient();
+                string fingerprint = settings.Mode + ":" + provider.Fingerprint;
+                bool changed = fingerprint != _usageSourceFingerprint;
+                if (changed)
+                {
+                    _ccClient.Clear(); _ccSnapshot = null; _usageSourceFingerprint = fingerprint;
+                    _nextCcQuery = DateTime.MinValue;
+                    PostConnection(ConnectionKind.Connecting, provider.Name, CcSwitchClient.Failure(provider, _texts.Chinese ? "正在查询…" : "Querying…"));
+                }
+                bool manual = Interlocked.Exchange(ref _manualRefresh, 0) != 0;
+                if (changed || manual || DateTime.UtcNow >= _nextCcQuery)
+                {
+                    // Interval=0 still permits initial, selection-change and manual queries.
+                    _nextCcQuery = provider.IntervalMinutes == 0 ? DateTime.MaxValue : DateTime.UtcNow.AddMinutes(provider.IntervalMinutes);
+                    _ccSnapshot = _ccClient.Query(provider);
+                    _nextCcEvaluation = DateTime.UtcNow.AddSeconds(15);
+                    // Discard responses from a provider/settings revision that changed in flight.
+                    UsageSourceSettings currentSettings = UsageSourceSettings.Load(_usageSettingsPath);
+                    CcProvider current = currentSettings.Resolve();
+                    if (current == null || current.Official || currentSettings.Mode + ":" + current.Fingerprint != fingerprint) return true;
+                }
+                else if (_ccSnapshot != null && String.IsNullOrEmpty(_ccSnapshot.SourceError) && DateTime.UtcNow >= _nextCcEvaluation)
+                {
+                    _ccSnapshot = _ccClient.Reevaluate(provider);
+                    _nextCcEvaluation = DateTime.UtcNow.AddSeconds(15);
+                }
+                if (_ccSnapshot != null)
+                    PostConnection(String.IsNullOrEmpty(_ccSnapshot.SourceError) ? ConnectionKind.Connected : ConnectionKind.Failed, provider.Name, _ccSnapshot);
+                return true;
+            }
+            catch (Exception ex)
+            {
+                StopClient(); _ccClient.Clear();
+                string message = UsageSourceSettings.SafeError(ex);
+                _ccSnapshot = CcSwitchClient.Failure(provider, message);
+                PostConnection(ConnectionKind.Failed, message, _ccSnapshot);
+                // Never fall back to official account data when third-party selection fails.
+                return true;
+            }
         }
 
         private bool TryConnect(out string error)
@@ -716,8 +813,9 @@ namespace CodexUsageBar
             _overlay.Hide();
             _stop.Set();
             _workerWake.Set();
+            _ccClient.Cancel();
             StopClient();
-            if (_worker != null && _worker.IsAlive) _worker.Join(3500);
+            if (_worker != null && _worker.IsAlive) _worker.Join(6500);
             ExitThread();
         }
 
@@ -741,7 +839,9 @@ namespace CodexUsageBar
                 try { _exitSignal.Dispose(); } catch { }
                 try { _tray.Visible = false; _tray.Dispose(); } catch { }
                 try { _menu.Dispose(); } catch { }
+                try { if (_menuThemeFont != null) _menuThemeFont.Dispose(); } catch { }
                 try { _overlay.Dispose(); } catch { }
+                try { if (_usageSettingsForm != null) _usageSettingsForm.Dispose(); } catch { }
                 try { _dispatcher.Dispose(); } catch { }
                 try { File.Delete(_hostStatePath); } catch { }
                 _workerWake.Dispose();
@@ -758,6 +858,7 @@ namespace CodexUsageBar
             Log.Disabled = true;
             try
             {
+                CcSwitchTests.Run();
                 ThemeSet theme = ThemeReader.Parse("[desktop]\nappearanceTheme=\"dark\"\nlanguage=\"zh-Hant\"\nsansFontSize=15\n[desktop.appearanceDarkChromeTheme]\naccent=\"#3dcd6e\"\nink=\"#fcfcfc\"\nsurface=\"#111111\"\n[desktop.appearanceDarkChromeTheme.fonts]\nui='\"PingFang SC\"'\n[desktop.appearanceDarkChromeTheme.fonts.uiFace]\nfamily=\"PingFang SC\"\nfullName=\"PingFang SC Semibold\"\npostscriptName=\"PingFangSC-Semibold\"");
                 Assert(theme.Appearance == "dark", "theme selection");
                 Assert(theme.Dark.Accent.R == 61 && theme.Dark.Accent.G == 205 && theme.Dark.Accent.B == 110, "accent parsing");
@@ -818,6 +919,20 @@ namespace CodexUsageBar
                     Assert(overlay.Width == collapsedWidth, "stable dynamic width");
                     Assert(overlay.ExpandedYOffset == 1, "expanded vertical offset");
                     using (var bitmap = new Bitmap(overlay.Width, overlay.Height)) overlay.DrawToBitmap(bitmap, overlay.ClientRectangle);
+                    Assert(overlay.PercentOffset("16:15 重置", 30, 200, 30) == 38, "time alignment falls back when label would overlap");
+                    Assert(Math.Abs(overlay.PercentOffset("9月16日 16:15 重置", 30, 200, 10) + 15 - overlay.ResetTimeCenter("9月16日 16:15 重置")) < 0.01f, "time alignment centers when space permits");
+                    Assert(overlay.PercentOffset("重置时间未知", 30, 200, 10) == 18, "unknown reset uses label spacing");
+                    int baseExpandedHeight = overlay.Height;
+                    foreach (int dpi in new int[] { 120, 144, 192, 96 })
+                    {
+                        overlay.ApplyDpi(dpi);
+                        overlay.SetExpanded(false);
+                        Assert(overlay.Height == (int)Math.Round(33 * dpi / 96.0), "DPI collapsed height");
+                        Assert(Math.Abs(overlay.CollapsedFontSizeInPoints - 12f * dpi / 96f) < 0.01f, "DPI font scaled once");
+                        overlay.SetExpanded(true);
+                        Assert(Math.Abs(overlay.Height - baseExpandedHeight * dpi / 96.0) <= 8, "DPI expanded content height");
+                        using (var scaled = new Bitmap(overlay.Width, overlay.Height)) overlay.DrawToBitmap(scaled, overlay.ClientRectangle);
+                    }
                     overlay.SetMode(DisplayMode.Attached);
                     IntPtr overlayHandle = overlay.Handle;
                     overlay.BringAboveCodex(owner.Handle, true);
@@ -831,7 +946,7 @@ namespace CodexUsageBar
                 Assert(CompanionContext.RetryDelayMs(1) == 1000 && CompanionContext.RetryDelayMs(5) == 30000, "retry policy");
                 return 0;
             }
-            catch { return 1; }
+            catch (Exception ex) { Console.Error.WriteLine(ex.ToString()); return 1; }
         }
 
         private static void Assert(bool condition, string name)

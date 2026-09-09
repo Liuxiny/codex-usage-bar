@@ -340,6 +340,38 @@ namespace CodexUsageBar
 
     internal sealed class UsageSnapshot
     {
+        public bool IsThirdParty;
+        public string SourceName, SourceError;
+        public DateTime QueriedAt;
+        public readonly List<CcUsageRow> UsageRows = new List<CcUsageRow>();
+        internal List<CcUsageRow> ThirdPartyQuotas
+        {
+            get
+            {
+                var rows = new List<CcUsageRow>();
+                foreach (CcUsageRow row in UsageRows)
+                    if (row.Kind != "estimate" && row.Valid && row.Unit == "%" && row.Total == 100 && row.Remaining.HasValue && row.Remaining >= 0 && row.Remaining <= 100) rows.Add(row);
+                return rows;
+            }
+        }
+        internal CcUsageRow ThirdPartyBalance
+        {
+            get
+            {
+                foreach (CcUsageRow row in UsageRows)
+                    if (row.Valid && row.Remaining.HasValue && (row.Kind == "balance" || row.Unit == "USD" || row.Unit == "CNY" || row.Unit == "EUR")) return row;
+                return null;
+            }
+        }
+        internal CcUsageRow ThirdPartyEstimate
+        {
+            get
+            {
+                foreach (CcUsageRow row in UsageRows)
+                    if (row.Valid && row.Remaining.HasValue && (row.Kind == "estimate" || row.Unit == "% 周")) return row;
+                return null;
+            }
+        }
         public readonly List<LimitWindow> Windows = new List<LimitWindow>();
         public long? YesterdayTokens;
         public long? LifetimeTokens;

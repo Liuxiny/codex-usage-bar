@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Drawing;
@@ -122,6 +122,19 @@ namespace CodexUsageBar
         internal static extern IntPtr SendMessage(IntPtr hwnd, int message, IntPtr wParam, IntPtr lParam);
         [DllImport("user32.dll")]
         internal static extern bool SetProcessDpiAwarenessContext(IntPtr value);
+        [DllImport("user32.dll")]
+        internal static extern uint GetDpiForWindow(IntPtr window);
+
+        [DllImport("user32.dll")]
+        internal static extern IntPtr GetDC(IntPtr window);
+        [DllImport("user32.dll")]
+        internal static extern int ReleaseDC(IntPtr window, IntPtr dc);
+        [DllImport("gdi32.dll")]
+        internal static extern IntPtr SelectObject(IntPtr dc, IntPtr value);
+        [DllImport("gdi32.dll")]
+        internal static extern bool DeleteObject(IntPtr value);
+        [DllImport("gdi32.dll", CharSet = CharSet.Unicode)]
+        internal static extern bool GetTextExtentPoint32(IntPtr dc, string value, int length, out Size size);
 
         internal static IntPtr SetWindowOwner(IntPtr hwnd, IntPtr owner)
         {

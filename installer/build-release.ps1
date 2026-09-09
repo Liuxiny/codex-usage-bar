@@ -200,6 +200,10 @@ try {
         (Join-Path $scriptRoot 'watcher-host.cs'),
         (Join-Path $scriptRoot 'companion-model.cs'),
         (Join-Path $scriptRoot 'app-server-client.cs'),
+        (Join-Path $scriptRoot 'cc-switch-client.cs'),
+        (Join-Path $scriptRoot 'cc-switch-tests.cs'),
+        (Join-Path $scriptRoot 'usage-settings.cs'),
+        (Join-Path $scriptRoot 'native-theme.cs'),
         (Join-Path $scriptRoot 'platform.cs'),
         (Join-Path $scriptRoot 'overlay-form.cs')
     )
@@ -213,6 +217,8 @@ try {
     & $CSharpCompiler /nologo /target:winexe /platform:anycpu /optimize+ `
         "/out:$companionExe" `
         "/win32icon:$stageIcon" `
+        "/resource:$(Join-Path $scriptRoot 'package-quota.js'),package-quota.js" `
+        /reference:System.Security.dll `
         "/reference:$SystemWindowsFormsReference" `
         "/reference:$SystemDrawingReference" `
         "/reference:$SystemWebExtensionsReference" `
@@ -229,7 +235,7 @@ try {
     Write-Host "Built and tested native companion: $standaloneExe"
 
     Copy-Item -LiteralPath (Join-Path $projectRoot 'setup-bootstrap.ps1') -Destination $stageRoot -Force
-    foreach ($file in @('VERSION', 'README.md', 'INSTALL-WINDOWS.md', 'CODEX-THEME-SPEC.md', 'LICENSE')) {
+    foreach ($file in @('VERSION', 'README.md', 'INSTALL-WINDOWS.md', 'CODEX-THEME-SPEC.md', 'LICENSE', 'THIRD-PARTY-NOTICES.md')) {
         Copy-Item -LiteralPath (Join-Path $projectRoot $file) -Destination $stageRoot -Force
     }
     if ($SkipInstaller) { return }
@@ -248,5 +254,10 @@ try {
     Write-Host "Built $setup"
     Write-Host "SHA256 $($hash.Hash)"
 } finally {
-    Remove-Item -LiteralPath $stageRoot -Recurse -Force -ErrorAction SilentlyContinue
+    $resolvedStage = [IO.Path]::GetFullPath($stageRoot)
+    $resolvedTemp = [IO.Path]::GetFullPath($env:TEMP).TrimEnd('\') + '\'
+    if ($resolvedStage.StartsWith($resolvedTemp, [StringComparison]::OrdinalIgnoreCase) -and
+        [IO.Path]::GetFileName($resolvedStage).StartsWith('codex-usage-bar-stage-')) {
+        Remove-Item -LiteralPath $resolvedStage -Recurse -Force -ErrorAction SilentlyContinue
+    }
 }
