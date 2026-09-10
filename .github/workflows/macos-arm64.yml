@@ -1,0 +1,29 @@
+name: macOS Apple Silicon
+on:
+  workflow_dispatch:
+  push:
+    paths: ['macos/**', 'installer/package-quota.js', 'assets/**', 'VERSION', '.github/workflows/macos-arm64.yml']
+  pull_request:
+    paths: ['macos/**', 'installer/package-quota.js', 'assets/**', 'VERSION', '.github/workflows/macos-arm64.yml']
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: macos-15
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check Apple Silicon runner
+        run: test "$(uname -m)" = arm64
+      - name: Build, test and package
+        run: bash macos/build.sh
+      - name: Upload app archive, checksums and UI previews
+        uses: actions/upload-artifact@v4
+        with:
+          name: CodexUsageBar-0.7.6-macOS-arm64
+          path: |
+            dist/macos/*.zip
+            dist/macos/*.dmg
+            dist/macos/*.sha256
+            dist/macos/previews/
+          if-no-files-found: error

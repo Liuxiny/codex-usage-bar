@@ -11,6 +11,11 @@ Desktop.ini
 .vscode/
 .idea/
 
+# macOS / Swift Package Manager
+.DS_Store
+macos/.build/
+macos/.swiftpm/
+
 # Local patches / archives
 *.patch
 *.zip

@@ -1,0 +1,6 @@
+macos/*.sh text eol=lf
+macos/*.command text eol=lf
+macos/**/*.swift text eol=lf
+macos/*.swift text eol=lf
+macos/*.plist text eol=lf
+.github/workflows/*.yml text eol=lf
