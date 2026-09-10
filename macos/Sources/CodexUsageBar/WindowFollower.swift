@@ -44,7 +44,7 @@ import ApplicationServices
         AXUIElementSetMessagingTimeout(axApp, 0.2)
         let windows = (value(axApp, kAXWindowsAttribute) as? [AXUIElement] ?? []).filter { standard($0) }
         if let main = value(axApp, kAXMainWindowAttribute), CFGetTypeID(main) == AXUIElementGetTypeID(), standard(main as! AXUIElement) {
-            target = main as! AXUIElement
+            target = (main as! AXUIElement)
         } else if let previous = target, windows.contains(where: { CFEqual($0, previous) }) { target = previous }
         else { target = windows.first }
         if observedPID != app.processIdentifier || observer == nil {
@@ -109,7 +109,8 @@ import ApplicationServices
             // Do not lift above Codex's file picker or sheet while it has focus.
             let axApp = AXUIElementCreateApplication(app.processIdentifier)
             let focused = value(axApp, kAXFocusedWindowAttribute)
-            let sheets = value(target, kAXSheetsAttribute) as? [AXUIElement] ?? []
+            let children = (value(target, kAXChildrenAttribute) as? [AXUIElement]) ?? []
+            let sheets = children.filter { value($0, kAXRoleAttribute) as? String == kAXSheetRole }
             let mainFocused = focused.map { CFEqual($0, target) } == true && sheets.isEmpty
             if mainFocused { panel.orderFrontRegardless() }
             else { orderAboveTarget(app, rect: rect) }

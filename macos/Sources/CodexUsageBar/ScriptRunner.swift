@@ -28,7 +28,15 @@ enum ScriptRunner {
 
     static func evaluate(_ script: String) async throws -> Any {
         guard script.utf8.count <= limit else { throw UsageError.message("Usage script exceeds 2 MiB") }
-        return try await Task.detached(priority: .utility) {
+        return try await withCheckedThrowingContinuation { continuation in
+            DispatchQueue.global(qos: .utility).async {
+                do { continuation.resume(returning: try evaluateBlocking(script)) }
+                catch { continuation.resume(throwing: error) }
+            }
+        }
+    }
+
+    private static func evaluateBlocking(_ script: String) throws -> Any {
             let child = Process(), input = Pipe(), output = Pipe()
             child.executableURL = Bundle.main.executableURL ?? URL(fileURLWithPath: CommandLine.arguments[0])
             child.arguments = ["--script-worker"]
@@ -57,7 +65,6 @@ enum ScriptRunner {
             child.waitUntilExit()
             guard child.terminationStatus == 0, let data = result.data else { throw UsageError.message("Usage script failed") }
             return try JSONSerialization.jsonObject(with: data, options: .fragmentsAllowed)
-        }.value
     }
 
     static func code(_ provider: Provider) -> String {

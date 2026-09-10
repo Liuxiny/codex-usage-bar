@@ -20,7 +20,11 @@ enum HTTPFixture {
         }
         listener.start(queue: queue)
         defer { listener.cancel() }
-        let started = await Task.detached { ready.wait(timeout: .now() + 5) == .success }.value
+        let started = await withCheckedContinuation { continuation in
+            DispatchQueue.global(qos: .utility).async {
+                continuation.resume(returning: ready.wait(timeout: .now() + 5) == .success)
+            }
+        }
         guard started, let port = listener.port else { throw UsageError.message("Loopback listener failed") }
         let base = "http://127.0.0.1:\(port.rawValue)"
         let data = try await UsageHTTP().fetch(["url": base + "/ok", "headers": ["Authorization": "Bearer synthetic"]], timeout: 2)
