@@ -41,7 +41,7 @@ for size in 16 32 128 256 512; do
 done
 iconutil -c icns "$ICONSET" -o "$APP/Contents/Resources/AppIcon.icns"
 plutil -lint "$APP/Contents/Info.plist"
-lipo -verify_arch arm64 "$APP/Contents/MacOS/CodexUsageBar"
+lipo "$APP/Contents/MacOS/CodexUsageBar" -verify_arch arm64
 if [[ -n "${CODE_SIGN_IDENTITY:-}" ]]; then
   codesign --force --options runtime --timestamp --entitlements "$ROOT/Entitlements.plist" --sign "$CODE_SIGN_IDENTITY" "$APP"
 else
