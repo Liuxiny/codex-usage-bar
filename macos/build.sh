@@ -68,7 +68,7 @@ STAGING="$(mktemp -d "$OUT/dmg-stage.XXXXXX")"
 trap 'rm -rf -- "$STAGING"' EXIT
 ditto "$APP" "$STAGING/Codex Usage Bar.app"
 ln -s /Applications "$STAGING/Applications"
-cp "$REPO/INSTALL-MACOS.md" "$STAGING/Install-and-Test.md"
+cp "$ROOT/DMG-INSTALL.txt" "$STAGING/Install.txt"
 hdiutil create -volname "Codex Usage Bar $VERSION" -srcfolder "$STAGING" -format UDZO -ov "$DMG"
 if [[ -n "${CODE_SIGN_IDENTITY:-}" ]]; then
   codesign --force --timestamp --sign "$CODE_SIGN_IDENTITY" "$DMG"

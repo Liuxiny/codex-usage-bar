@@ -1,6 +1,6 @@
 # Codex Usage Bar
 
-**macOS Apple Silicon 移植：** 0.7.6 新增 [原生 macOS 源码与构建/测试说明](./INSTALL-MACOS.md)，位于 `macos/`。当前仍待 Mac 编译与实机验收；下文为现有 Windows 版说明。
+**macOS Apple Silicon 移植：** 0.7.6 新增 [原生 macOS 源码与安装/测试说明](./INSTALL-MACOS.md)，位于 `macos/`。已通过云端 Mac 编译、原生自检和 DMG 校验；真实 Codex/CC Switch 交互仍需实机验收。下文为现有 Windows 版说明。
 
 > Windows 版 Codex 用量伴随工具。支持官方 App Server、CC Switch，以及其他第三方 API 的自定义用量查询；未安装 CC Switch 也可独立配置。界面使用独立原生窗口。
 

@@ -2,11 +2,11 @@
 
 这是 0.7.6 的原生 macOS 移植源码，目标为 M1/M2/M3/M4 及后续 Apple Silicon、macOS 13 或更高版本，不依赖 Rosetta、.NET、Node.js 或 CC Switch 运行时。界面交互和数据展示以 Windows 0.7.6 为准，底层使用 AppKit、Accessibility、JavaScriptCore、URLSession、SQLite 和 Keychain。
 
-**交付状态：源码与构建/自检流程已提供；当前开发机为 Windows，尚未执行 macOS 编译、原生自检或实机验收。源码 ZIP 不是可直接启动的 `.app`。** 不应把语法检查通过视为 macOS 编译通过。
+**交付状态：已在 GitHub Actions 的 Apple Silicon Mac 上完成编译、8 项 Swift 单元测试、原生集成自检和 DMG 校验。** [首次成功构建记录](https://github.com/Liuxiny/codex-usage-bar/actions/runs/34472450805)。DMG 内含可运行应用；无需测试者编译。真实 Codex/CC Switch 连接、辅助功能权限、多屏和跨应用窗口层级仍待朋友实机验收。
 
 ## 给测试者：先构建，再安装
 
-如果拿到的是已构建的 `CodexUsageBar-v0.7.6-macOS-arm64.dmg`，直接双击挂载，将应用拖到旁边的 `Applications` 快捷方式，再从“应用程序”启动即可，无需安装开发工具。下面的构建步骤仅适用于源码包。构建脚本现在同时产出 DMG 和应用 ZIP；当前 Windows 开发机尚未生成真实 DMG。
+如果拿到的是已构建的 `CodexUsageBar-v0.7.6-macOS-arm64.dmg`，直接双击挂载，将应用拖到旁边的 `Applications` 快捷方式，再从“应用程序”启动即可，无需安装开发工具。下面的构建步骤仅适用于源码包。构建脚本同时产出 DMG 和应用 ZIP。
 
 需要 Apple Silicon Mac，以及 Swift 5.9+ 的 Xcode Command Line Tools（推荐当前稳定版 Xcode/Command Line Tools）。仅运行构建好的 `.app` 不需要这些开发工具。
 
@@ -76,6 +76,6 @@
 
 ## CI 与发布者
 
-仓库包含 `.github/workflows/macos-arm64.yml`，在 Apple Silicon runner 上执行 `bash macos/build.sh`，上传 DMG、ZIP、SHA256 和中英文深浅色预览。不自动创建 Release，也不会上传个人配置。可通过该云端 macOS 环境完成构建，让测试者只安装 DMG；本轮未推送代码或运行远程 CI。
+仓库包含 `.github/workflows/macos-arm64.yml`，在 Apple Silicon runner 上执行 `bash macos/build.sh`，上传 DMG、ZIP、SHA256 和中英文深浅色预览。不自动创建 Release，也不会上传个人配置。已按用户授权推送独立分支 `macos-arm64-v0.7.6` 并完成远程 CI，未合并主分支。
 
 如配置 Developer ID，可用 `CODE_SIGN_IDENTITY` 进行正式签名；配置 `NOTARY_PROFILE` 时，构建脚本使用 `notarytool` 公证并 staple 后重新生成 ZIP。默认不依赖 Apple 开发者账户。

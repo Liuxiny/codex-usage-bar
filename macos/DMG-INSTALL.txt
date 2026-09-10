@@ -1,0 +1,25 @@
+Codex Usage Bar 0.7.6 — macOS Apple Silicon
+
+安装
+1. 将 Codex Usage Bar.app 拖到本窗口的 Applications 快捷方式。
+2. 从“应用程序”打开 Codex Usage Bar，然后启动 Codex。
+3. 使用“跟随 Codex”时，在“系统设置 → 隐私与安全性 → 辅助功能”允许 Codex Usage Bar。
+4. 在菜单栏图标的“数据源”中选择官方、CC Switch 或独立配置，并测试查询。
+
+适用于 M 系列芯片，macOS 13 或更高版本。运行应用不需要 Xcode、Node.js 或 .NET。
+本测试构建使用 ad-hoc 签名，未经过 Apple Developer ID 公证。若 macOS 阻止打开，
+请到“系统设置 → 隐私与安全性”按系统提供的“仍要打开”流程处理；无需关闭系统安全设置。
+
+CC Switch 默认目录：~/.cc-switch。
+请先在 CC Switch 中选中 Codex 服务商，启用并保存用量查询脚本。
+官方查询需要可用且已登录的 Codex CLI；若自动连接失败，可在数据源中指定 CLI 路径。
+
+反馈问题时，请提供 macOS/芯片/Codex/CC Switch 版本、复现步骤和脱敏截图。
+请勿发送 API Key、Access Token、真实数据库或完整个人配置。
+
+Install
+Drag Codex Usage Bar.app onto Applications, then launch it from Applications.
+Requires Apple Silicon and macOS 13+. No developer tools are required to run.
+Allow Accessibility access for Follow Codex mode. Configure and test your source
+from the menu bar icon. This test build is ad-hoc signed, not Apple notarized;
+if blocked, use the Open Anyway flow in System Settings > Privacy & Security.

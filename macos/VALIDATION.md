@@ -2,6 +2,19 @@
 
 日期：2026-09-10。开发环境：Windows x64。没有可用的 macOS SDK、Swift 编译器或 Mac 测试机。
 
+## 云端验证更新
+
+本地环境限制已通过 GitHub Actions Apple Silicon runner 解决。
+[运行 34472450805](https://github.com/Liuxiny/codex-usage-bar/actions/runs/34472450805) 全部成功：
+
+- Debug / release 编译、链接和 8 项 Swift 单元测试通过。
+- arm64 架构、plist、ad-hoc 应用签名检查通过。
+- SQLite、模拟 App Server、HTTP、JavaScriptCore、套餐模板集成自检通过。
+- 已生成 8 张中英文深浅色预览，已目视检查代表性收起/展开布局。
+- DMG 已生成，`hdiutil verify` 磁盘映像校验通过。
+
+云端实际编译修复了主 actor 入口、AX sheet 子元素识别以及 lipo 参数顺序。仍未验证真实账号/CC Switch 查询、辅助功能授权、多屏/Spaces/全屏或 Developer ID 公证。以下为早期本地阶段记录，其中“尚未执行的 Mac 检查”现已在云端执行。
+
 ## 已执行
 
 - 14 个 Swift 文件经 tree-sitter-swift 解析，无语法错误节点。
