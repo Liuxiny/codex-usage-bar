@@ -1,4 +1,4 @@
-[CmdletBinding()]
+﻿[CmdletBinding()]
 param(
     [string]$OutputDir,
     [string]$InnoCompiler = $env:INNO_SETUP_COMPILER,
@@ -228,8 +228,9 @@ try {
     if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $companionExe -PathType Leaf)) {
         throw "Companion C# compilation failed with exit code $LASTEXITCODE"
     }
-    $selfTest = Start-Process -FilePath $companionExe -ArgumentList '--self-test' -WindowStyle Hidden -Wait -PassThru
-    if ($selfTest.ExitCode -ne 0) { throw "Companion self-test failed with exit code $($selfTest.ExitCode)" }
+    $selfTestError = Join-Path $stageRoot 'self-test-error.txt'
+    $selfTest = Start-Process -FilePath $companionExe -ArgumentList '--self-test' -WindowStyle Hidden -Wait -PassThru -RedirectStandardError $selfTestError
+    if ($selfTest.ExitCode -ne 0) { throw "Companion self-test failed: $([IO.File]::ReadAllText($selfTestError))" }
     $standaloneExe = Join-Path $OutputDir 'CodexUsageBar.exe'
     Copy-Item -LiteralPath $companionExe -Destination $standaloneExe -Force
     Write-Host "Built and tested native companion: $standaloneExe"

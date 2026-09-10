@@ -84,6 +84,11 @@ namespace CodexUsageBar
         internal static extern bool EnumWindows(EnumWindowsProc callback, IntPtr parameter);
         [DllImport("user32.dll")]
         internal static extern bool IsWindowVisible(IntPtr hwnd);
+        [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+        internal static extern int GetClassName(IntPtr hwnd, StringBuilder value, int capacity);
+        [DllImport("user32.dll", EntryPoint = "GetWindowLongW")]
+        internal static extern int GetWindowLong(IntPtr hwnd, int index);
+
         [DllImport("user32.dll")]
         internal static extern bool IsIconic(IntPtr hwnd);
         [DllImport("user32.dll")]
@@ -185,17 +190,46 @@ namespace CodexUsageBar
             return valid;
         }
 
+        internal static bool HasMainWindowRole(IntPtr hwnd)
+        {
+            if (hwnd == IntPtr.Zero || NativeMethods.GetWindow(hwnd, NativeMethods.GW_OWNER) != IntPtr.Zero) return false;
+            if ((NativeMethods.GetWindowLong(hwnd, -16) & 0x40000000) != 0) return false; // WS_CHILD
+            if ((NativeMethods.GetWindowLong(hwnd, NativeMethods.GWL_EXSTYLE) & NativeMethods.WS_EX_TOOLWINDOW) != 0) return false;
+            var className = new StringBuilder(256);
+            if (NativeMethods.GetClassName(hwnd, className, className.Capacity) == 0) return false;
+            return !String.Equals(className.ToString(), "#32770", StringComparison.Ordinal);
+        }
+
+        internal static bool IsMainWindow(IntPtr hwnd)
+        {
+            if (!HasMainWindowRole(hwnd)) return false;
+            uint processId;
+            NativeMethods.GetWindowThreadProcessId(hwnd, out processId);
+            return IsCodexProcess(processId);
+        }
+
+        internal static IntPtr RootOwner(IntPtr hwnd)
+        {
+            for (int depth = 0; hwnd != IntPtr.Zero && depth < 32; depth++)
+            {
+                IntPtr owner = NativeMethods.GetWindow(hwnd, NativeMethods.GW_OWNER);
+                if (owner == IntPtr.Zero) return hwnd;
+                hwnd = owner;
+            }
+            return IntPtr.Zero;
+        }
+
         internal static IntPtr FindBestWindow()
         {
             IntPtr foreground = NativeMethods.GetForegroundWindow();
+            // An owned dialog selects its main owner, never the dialog itself.
+            IntPtr foregroundOwner = RootOwner(foreground);
             IntPtr best = IntPtr.Zero;
             long bestArea = -1;
             NativeMethods.EnumWindows(delegate(IntPtr hwnd, IntPtr parameter)
             {
                 if (!NativeMethods.IsWindowVisible(hwnd)) return true;
-                uint processId;
-                NativeMethods.GetWindowThreadProcessId(hwnd, out processId);
-                if (!IsCodexProcess(processId)) return true;
+                if (!IsMainWindow(hwnd)) return true;
                 int cloaked;
                 if (NativeMethods.DwmGetWindowAttribute(hwnd, NativeMethods.DWMWA_CLOAKED, out cloaked, sizeof(int)) == 0 && cloaked != 0) return true;
                 NativeMethods.RECT rectangle;
@@ -203,7 +237,7 @@ namespace CodexUsageBar
                 long width = Math.Max(0, rectangle.Right - rectangle.Left);
                 long height = Math.Max(0, rectangle.Bottom - rectangle.Top);
                 if (width < 320 || height < 240) return true;
-                if (hwnd == foreground)
+                if (hwnd == foregroundOwner)
                 {
                     best = hwnd;
                     bestArea = Int64.MaxValue;
@@ -223,16 +257,13 @@ namespace CodexUsageBar
         internal static bool IsForegroundCodex()
         {
             IntPtr foreground = NativeMethods.GetForegroundWindow();
-            if (foreground == IntPtr.Zero) return false;
-            uint processId;
-            NativeMethods.GetWindowThreadProcessId(foreground, out processId);
-            return IsCodexProcess(processId);
+            return IsMainWindow(foreground);
         }
 
         internal static bool TryClientBounds(IntPtr hwnd, out Rectangle bounds)
         {
             bounds = Rectangle.Empty;
-            if (hwnd == IntPtr.Zero || !NativeMethods.IsWindowVisible(hwnd) || NativeMethods.IsIconic(hwnd)) return false;
+            if (!IsMainWindow(hwnd) || !NativeMethods.IsWindowVisible(hwnd) || NativeMethods.IsIconic(hwnd)) return false;
             NativeMethods.RECT client;
             if (!NativeMethods.GetClientRect(hwnd, out client)) return false;
             var topLeft = new NativeMethods.POINT();

@@ -14,8 +14,8 @@ using Microsoft.Win32;
 [assembly: AssemblyTitle("Codex Usage Bar")]
 [assembly: AssemblyProduct("Codex Usage Bar")]
 [assembly: AssemblyCompany("Codex Usage Bar")]
-[assembly: AssemblyVersion("0.7.5.0")]
-[assembly: AssemblyFileVersion("0.7.5.0")]
+[assembly: AssemblyVersion("0.7.6.0")]
+[assembly: AssemblyFileVersion("0.7.6.0")]
 
 namespace CodexUsageBar
 {
@@ -45,7 +45,7 @@ namespace CodexUsageBar
 
     internal static class CompanionHost
     {
-        internal const string Version = "0.7.5";
+        internal const string Version = "0.7.6";
         internal const string MutexName = "Local\\CodexUsageBarCompanion";
         internal const string ExitEventName = "Local\\CodexUsageBarExit";
 
@@ -499,7 +499,7 @@ namespace CodexUsageBar
 
             bool codexForeground = CodexLocator.IsForegroundCodex();
             IntPtr next = CodexLocator.FindBestWindow();
-            if (next != IntPtr.Zero) _codexWindow = next;
+            _codexWindow = next;
             Rectangle client;
             if (!CodexLocator.TryClientBounds(_codexWindow, out client))
             {
@@ -894,6 +894,18 @@ namespace CodexUsageBar
                 string noUsageSample = "{\"dailyUsageBuckets\":[{\"startDate\":\"2026-08-24\",\"tokens\":321}]}";
                 AppDataParser.ParseUsage(new JavaScriptSerializer().DeserializeObject(noUsageSample), snapshot, officialNow);
                 Assert(snapshot.YesterdayTokens == 0, "missing official yesterday means zero usage");
+                using (var mainWindow = new Form())
+                using (var dialog = new Form())
+                using (var toolWindow = new Form())
+                {
+                    Assert(CodexLocator.HasMainWindowRole(mainWindow.Handle), "unowned main window role");
+                    NativeMethods.SetWindowOwner(dialog.Handle, mainWindow.Handle);
+                    Assert(!CodexLocator.HasMainWindowRole(dialog.Handle), "owned file dialog cannot be attachment target");
+                    Assert(CodexLocator.RootOwner(dialog.Handle) == mainWindow.Handle, "dialog resolves to main owner");
+                    toolWindow.FormBorderStyle = FormBorderStyle.FixedToolWindow;
+                    Assert(!CodexLocator.HasMainWindowRole(toolWindow.Handle), "tool window cannot be attachment target");
+                    Assert(!CodexLocator.HasMainWindowRole(IntPtr.Zero), "destroyed target rejected");
+                }
                 using (var owner = new Form())
                 using (var overlay = new OverlayForm())
                 {

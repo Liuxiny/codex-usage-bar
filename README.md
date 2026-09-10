@@ -2,7 +2,7 @@
 
 > Windows 版 Codex 用量伴随工具。支持官方 App Server、CC Switch，以及其他第三方 API 的自定义用量查询；未安装 CC Switch 也可独立配置。界面使用独立原生窗口。
 
-![Version](https://img.shields.io/badge/version-0.7.5-blue)
+![Version](https://img.shields.io/badge/version-0.7.6-blue)
 ![Platform](https://img.shields.io/badge/platform-Windows%2010%2F11-lightgrey)
 ![Architecture](https://img.shields.io/badge/arch-x64-lightgrey)
 
@@ -19,7 +19,7 @@
 - 托盘“数据源”支持自动跟随 CC Switch、仅官方、仅 CC Switch、独立配置；附带套餐查询模板和测试查询。
 - 两种悬浮窗模式：
   - **独立展示**：桌面置顶小窗，可拖动并记住位置。
-  - **跟随 Codex**：在 Codex 工具栏水平居中并保持在 Codex 上一层；Codex 失焦后继续显示，但可被其他应用正常遮挡。Codex 最小化或窗口丢失时隐藏。
+  - **跟随 Codex**：仅吸附 Codex 主窗口，排除文件选择对话框和工具弹窗；在 Codex 工具栏水平居中并保持在 Codex 上一层；Codex 失焦后继续显示，但可被其他应用正常遮挡。Codex 最小化或窗口丢失时隐藏。
 - 托盘图标左键、右键均可打开菜单。设置窗口、托盘与子菜单跟随悬浮窗的明暗主题、字体与强调色；设置按连接参数、脚本和结果分区，CC Switch 模式不展示无关凭据字段。
 - 托盘菜单显示当前连接状态，并提供：
   - 显示或隐藏悬浮窗。
@@ -50,7 +50,7 @@ CodexUsageBar.exe
   └─ WinForms 原生悬浮窗
 ```
 
-0.7.5 不使用 `9335`、CDP、DOM selector、`renderer-inject.js`、UI Automation 取数或高频截图。
+0.7.6 不使用 `9335`、CDP、DOM selector、`renderer-inject.js`、UI Automation 取数或高频截图。
 
 ## 连接与刷新
 
@@ -81,7 +81,7 @@ CodexUsageBar.exe
 
 ## 安装
 
-1. 从 Releases 下载 `CodexUsageBar-Setup-v0.7.5.exe`。
+1. 从 Releases 下载 `CodexUsageBar-Setup-v0.7.6.exe`。
 2. 运行安装器。
 3. 安装完成后托盘出现 Codex Usage Bar 图标。
 4. 左键或右键托盘图标选择展示方式。
