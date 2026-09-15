@@ -2,7 +2,7 @@
 
 > Windows 版 Codex 用量伴随工具。支持官方 App Server、CC Switch，以及其他第三方 API 的自定义用量查询；未安装 CC Switch 也可独立配置。界面使用独立原生窗口。
 
-![Version](https://img.shields.io/badge/version-0.7.6-blue)
+![Version](https://img.shields.io/badge/version-0.7.8-blue)
 ![Platform](https://img.shields.io/badge/platform-Windows%2010%2F11-lightgrey)
 ![Architecture](https://img.shields.io/badge/arch-x64-lightgrey)
 
@@ -13,7 +13,7 @@
 
 - 官方数据源显示 5 小时与周额度；收起态使用圆环，展开态使用双列进度条，并按 Codex 官方 UTC 日界线显示昨日 Token 和累计 Token。
 - 第三方数据源执行 CC Switch 格式的 `request + extractor` JavaScript；收缩时显示圆环、额度百分比、官方格式的重置时间，以及 `$ 金额 单位`。
-- 第三方展开时显示条形额度与重置时间、独立余额栏；有效的余额折合周额度另占下一栏，并标注历史估算。估算无效时连同分隔线隐藏，数值 0 仍显示。第三方模式不混入官方 Token 汇总。
+- 第三方展开时显示条形额度与重置时间、独立余额栏；有效的余额折合周额度以“约 N% 周”在余额同一栏右对齐，百分比使用强调色与粗体，无独立估算栏。估算无效时隐藏，数值 0 仍显示。第三方模式不混入官方 Token 汇总。
 - 收缩提示文字整体居中；收缩文字为 16px，展开文字跟随外观 UI 字号。数字与 %、K/M/B 加粗，$、USD 和普通文字不加粗；余额数值使用强调色。
 - 悬浮窗跟随显示器 DPI 缩放字体、圆环、间距与高度；展开百分比在空间允许时与下一行时分居中对齐，否则保持标签右侧间距，余额栏更紧凑。
 - 托盘“数据源”支持自动跟随 CC Switch、仅官方、仅 CC Switch、独立配置；附带套餐查询模板和测试查询。
@@ -50,7 +50,7 @@ CodexUsageBar.exe
   └─ WinForms 原生悬浮窗
 ```
 
-0.7.6 不使用 `9335`、CDP、DOM selector、`renderer-inject.js`、UI Automation 取数或高频截图。
+0.7.8 不使用 `9335`、CDP、DOM selector、`renderer-inject.js`、UI Automation 取数或高频截图。
 
 ## 连接与刷新
 
@@ -81,7 +81,7 @@ CodexUsageBar.exe
 
 ## 安装
 
-1. 从 Releases 下载 `CodexUsageBar-Setup-v0.7.6.exe`。
+1. 从 Releases 下载 `CodexUsageBar-Setup-v0.7.8.exe`。
 2. 运行安装器。
 3. 安装完成后托盘出现 Codex Usage Bar 图标。
 4. 左键或右键托盘图标选择展示方式。

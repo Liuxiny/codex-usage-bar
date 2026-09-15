@@ -179,8 +179,7 @@ namespace CodexUsageBar
             {
                 int line = ExpandedLineHeight();
                 int height = _snapshot.ThirdPartyQuotas.Count > 0 ? CollapsedHeight + line * 2 + ScalePixels(20) : line * 2 + ScalePixels(20);
-                if (_snapshot.ThirdPartyBalance != null) height += line + ScalePixels(18);
-                if (_snapshot.ThirdPartyEstimate != null) height += line * 2 + ScalePixels(26);
+                if (_snapshot.ThirdPartyBalance != null || _snapshot.ThirdPartyEstimate != null) height += line + ScalePixels(18);
                 return height + ScalePixels(8);
             }
             int lineHeight = ExpandedLineHeight();
@@ -208,7 +207,8 @@ namespace CodexUsageBar
                 if (balance != null) width += StyledWidth(BalanceText(balance), _menuFont, _boldFont) + ScalePixels(18);
                 if (quotas.Count == 0) width = Math.Max(width, MeasureTextWidth(ThirdPartySummary(), _menuFont) + ScalePixels(24));
                 CcUsageRow estimate = _snapshot.ThirdPartyEstimate;
-                if (estimate != null) width = Math.Max(width, StyledWidth(EstimateText(estimate), _smallFont, _smallBoldFont) + ScalePixels(24));
+                if (estimate != null) width = Math.Max(width, StyledWidth(EstimateText(estimate), _smallFont, _smallBoldFont) +
+                    (balance == null ? 0 : StyledWidth(BalanceText(balance), _smallFont, _smallBoldFont) + ScalePixels(20)) + ScalePixels(20));
                 return Math.Min(Math.Max(ScalePixels(300), width), Screen.FromControl(this).WorkingArea.Width - ScalePixels(20));
             }
             List<LimitWindow> windows = _snapshot.DisplayWindows;
@@ -520,7 +520,7 @@ namespace CodexUsageBar
         }
         private string EstimateText(CcUsageRow row)
         {
-            return (_texts.Chinese ? "余额折合周额度 " : "Weekly quota equivalent ") + row.Remaining.Value.ToString("0.##", CultureInfo.InvariantCulture) + (_texts.Chinese ? "% 周" : "% week");
+            return (_texts.Chinese ? "约 " : "~ ") + Math.Round(row.Remaining.Value, MidpointRounding.AwayFromZero).ToString("0", CultureInfo.InvariantCulture) + (_texts.Chinese ? "% 周" : "% week");
         }
         private string QuotaLabel(CcUsageRow row)
         {
@@ -604,17 +604,21 @@ namespace CodexUsageBar
                     if (i < quotas.Count - 1) using (var separator = new Pen(Blend(_theme.Surface, _theme.Ink, 0.12))) graphics.DrawLine(separator, left + width, ScalePixels(8), left + width, top - ScalePixels(8));
                 }
             }
-            if (balance != null)
+            if (balance != null || estimate != null)
             {
                 DrawDivider(graphics, top);
-                DrawBalance(graphics, BalanceText(balance), _smallFont, _smallBoldFont, _theme.Ink, new RectangleF(ScalePixels(10), top + ScalePixels(5), ClientSize.Width - ScalePixels(20), line + ScalePixels(8)));
-                top += line + ScalePixels(18);
-            }
-            if (estimate != null)
-            {
-                DrawDivider(graphics, top);
-                DrawStyled(graphics, EstimateText(estimate), _smallFont, _smallBoldFont, _theme.Ink, new RectangleF(ScalePixels(10), top + ScalePixels(8), ClientSize.Width - ScalePixels(20), line));
-                DrawText(graphics, _texts.Chinese ? "历史估算 · 非额外额度" : "Historical estimate · not additional quota", _smallFont, muted, new RectangleF(ScalePixels(10), top + line + ScalePixels(12), ClientSize.Width - ScalePixels(20), line), StringAlignment.Near, StringAlignment.Center);
+                int inset = ScalePixels(10);
+                int estimateWidth = estimate == null ? 0 : StyledWidth(EstimateText(estimate), _smallFont, _smallBoldFont);
+                float estimateLeft = ClientSize.Width - inset - estimateWidth;
+                if (balance != null)
+                {
+                    float balanceWidth = estimate == null ? ClientSize.Width - inset * 2 : Math.Max(0, estimateLeft - inset - ScalePixels(20));
+                    DrawBalance(graphics, BalanceText(balance), _smallFont, _smallBoldFont, _theme.Ink,
+                        new RectangleF(inset, top + ScalePixels(5), balanceWidth, line + ScalePixels(8)));
+                }
+                if (estimate != null)
+                    DrawStyled(graphics, EstimateText(estimate), _smallFont, _smallBoldFont, _theme.Ink,
+                        new RectangleF(estimateLeft, top + ScalePixels(5), estimateWidth, line + ScalePixels(8)), true);
             }
         }
         private void DrawBalance(Graphics graphics, string value, Font normal, Font numeric, Color color, RectangleF rectangle)
@@ -676,7 +680,7 @@ namespace CodexUsageBar
                 if (part.Length > 0) width += TextAdvance(part, Regex.IsMatch(part, @"^(?:[+-]?\d+(?:\.\d+)?(?:[%KBM])?)$") ? numeric : normal);
             return width;
         }
-        private void DrawStyled(Graphics graphics, string value, Font normal, Font numeric, Color color, RectangleF rectangle)
+        private void DrawStyled(Graphics graphics, string value, Font normal, Font numeric, Color color, RectangleF rectangle, bool accentNumbers = false)
         {
             float left = rectangle.Left;
             foreach (string part in Regex.Split(value ?? "", @"([+-]?\d+(?:\.\d+)?(?:[%KBM])?)"))
@@ -685,7 +689,7 @@ namespace CodexUsageBar
                 Font font = Regex.IsMatch(part, @"^(?:[+-]?\d+(?:\.\d+)?(?:[%KBM])?)$") ? numeric : normal;
                 int width = TextAdvance(part, font);
                 if (left >= rectangle.Right) break;
-                Color ink = value.StartsWith("$ ", StringComparison.Ordinal) && Regex.IsMatch(part, @"^[+-]?\d") ? _theme.Accent : color;
+                Color ink = (accentNumbers || value.StartsWith("$ ", StringComparison.Ordinal)) && Regex.IsMatch(part, @"^[+-]?\d") ? _theme.Accent : color;
                 DrawText(graphics, part, font, ink, new RectangleF(left, rectangle.Top, Math.Min(width, rectangle.Right - left), rectangle.Height), StringAlignment.Near, StringAlignment.Center);
                 left += width;
             }

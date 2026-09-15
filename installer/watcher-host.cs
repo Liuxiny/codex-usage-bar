@@ -14,8 +14,8 @@ using Microsoft.Win32;
 [assembly: AssemblyTitle("Codex Usage Bar")]
 [assembly: AssemblyProduct("Codex Usage Bar")]
 [assembly: AssemblyCompany("Codex Usage Bar")]
-[assembly: AssemblyVersion("0.7.6.0")]
-[assembly: AssemblyFileVersion("0.7.6.0")]
+[assembly: AssemblyVersion("0.7.8.0")]
+[assembly: AssemblyFileVersion("0.7.8.0")]
 
 namespace CodexUsageBar
 {
@@ -45,7 +45,7 @@ namespace CodexUsageBar
 
     internal static class CompanionHost
     {
-        internal const string Version = "0.7.6";
+        internal const string Version = "0.7.8";
         internal const string MutexName = "Local\\CodexUsageBarCompanion";
         internal const string ExitEventName = "Local\\CodexUsageBarExit";
 

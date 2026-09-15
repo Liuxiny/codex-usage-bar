@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Drawing;
@@ -74,10 +74,10 @@ namespace CodexUsageBar
             using (var form = new OverlayForm())
             {
                 form.ApplySnapshot(CcSwitchClient.Extract(p, code, fixture, now)); form.SetExpanded(true);
-                Assert(form.Width >= 300 && form.Height > 170, "multiple row layout");
+                Assert(form.Width >= 300 && form.Height > 100, "quota and shared balance row layout");
                 int estimateHeight = form.Height;
                 form.ApplySnapshot(CcSwitchClient.Extract(p, code, Fixture(now, now.AddDays(7), "pro", 80, false), now));
-                Assert(form.Height < estimateHeight, "estimate section and separator removed when unavailable");
+                Assert(form.Height == estimateHeight, "estimate shares balance row without extra height");
                 UsageSnapshot zeroEstimate = CcSwitchClient.Extract(p, code, fixture, now);
                 zeroEstimate.ThirdPartyEstimate.Remaining = 0;
                 form.ApplySnapshot(zeroEstimate);
