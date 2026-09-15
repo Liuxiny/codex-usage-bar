@@ -14,8 +14,8 @@ using Microsoft.Win32;
 [assembly: AssemblyTitle("Codex Usage Bar")]
 [assembly: AssemblyProduct("Codex Usage Bar")]
 [assembly: AssemblyCompany("Codex Usage Bar")]
-[assembly: AssemblyVersion("0.7.8.0")]
-[assembly: AssemblyFileVersion("0.7.8.0")]
+[assembly: AssemblyVersion("0.7.9.0")]
+[assembly: AssemblyFileVersion("0.7.9.0")]
 
 namespace CodexUsageBar
 {
@@ -45,7 +45,7 @@ namespace CodexUsageBar
 
     internal static class CompanionHost
     {
-        internal const string Version = "0.7.8";
+        internal const string Version = "0.7.9";
         internal const string MutexName = "Local\\CodexUsageBarCompanion";
         internal const string ExitEventName = "Local\\CodexUsageBarExit";
 
@@ -121,6 +121,7 @@ namespace CodexUsageBar
         private readonly CcSwitchClient _ccClient = new CcSwitchClient();
         private string _usageSourceFingerprint;
         private DateTime _nextCcQuery = DateTime.MinValue, _nextCcEvaluation = DateTime.MinValue;
+        private DateTime _lastCcPoll = DateTime.MinValue;
         private UsageSnapshot _ccSnapshot;
         private readonly string _hostStatePath;
         private readonly string _configPath;
@@ -644,6 +645,14 @@ namespace CodexUsageBar
             StopClient();
         }
 
+        internal static bool RefreshAfterPollingGap(DateTime previous, DateTime now, int intervalMinutes)
+        {
+            // Resume or a long scheduling pause: refresh enabled sources before evaluating old cache.
+            // Interval=0 remains explicitly manual, including after resume.
+            return intervalMinutes > 0 && previous != DateTime.MinValue &&
+                (now < previous || now - previous > TimeSpan.FromMinutes(1));
+        }
+
         private bool HandleUsageSource()
         {
             CcProvider provider = null;
@@ -669,6 +678,9 @@ namespace CodexUsageBar
                     _nextCcQuery = DateTime.MinValue;
                     PostConnection(ConnectionKind.Connecting, provider.Name, CcSwitchClient.Failure(provider, _texts.Chinese ? "正在查询…" : "Querying…"));
                 }
+                DateTime pollTime = DateTime.UtcNow;
+                if (RefreshAfterPollingGap(_lastCcPoll, pollTime, provider.IntervalMinutes)) _nextCcQuery = DateTime.MinValue;
+                _lastCcPoll = pollTime;
                 bool manual = Interlocked.Exchange(ref _manualRefresh, 0) != 0;
                 if (changed || manual || DateTime.UtcNow >= _nextCcQuery)
                 {
@@ -887,6 +899,10 @@ namespace CodexUsageBar
                 Assert(weeklyOnly.DisplayWindows.Count == 1 && weeklyOnly.DisplayWindows[0].WindowDurationMins == 10080,
                     "weekly-only fallback");
 
+                DateTime pollNow = DateTime.UtcNow;
+                Assert(!CompanionContext.RefreshAfterPollingGap(pollNow.AddSeconds(-5), pollNow, 5), "normal polling does not force query");
+                Assert(CompanionContext.RefreshAfterPollingGap(pollNow.AddMinutes(-2), pollNow, 5), "resume triggers enabled query");
+                Assert(!CompanionContext.RefreshAfterPollingGap(pollNow.AddMinutes(-20), pollNow, 0), "resume respects manual-only mode");
                 DateTime officialNow = new DateTime(2026, 8, 26, 16, 50, 0, DateTimeKind.Utc);
                 string usageSample = "{\"summary\":{\"lifetimeTokens\":4567},\"dailyUsageBuckets\":[{\"startDate\":\"2026-08-25\",\"tokens\":1234},{\"startDate\":\"2026-08-26\",\"tokens\":9999}]}";
                 AppDataParser.ParseUsage(new JavaScriptSerializer().DeserializeObject(usageSample), snapshot, officialNow);

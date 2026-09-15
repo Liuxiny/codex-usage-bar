@@ -11,7 +11,7 @@
     function numeric(n) { return typeof n === "number" && isFinite(n); }
     var now = Date.now();
     var age = now - Date.parse(d.updated_at);
-    var fresh = isFinite(age) && age >= -60000 && age <= 360000 &&
+    var fresh = isFinite(age) && age >= -60000 && age <= 900000 &&
       (d.status === "available" || d.status === "exhausted");
     var windows = Array.isArray(d.windows) ? d.windows : [];
     function find(seconds) { return windows.find(function (w) { return w.window_seconds === seconds; }); }

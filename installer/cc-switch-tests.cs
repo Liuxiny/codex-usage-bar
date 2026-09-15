@@ -52,9 +52,12 @@ namespace CodexUsageBar
             data = CcSwitchClient.Extract(p, code, Fixture(now, now.AddDays(7), "plus", 0, false), now);
             Assert(data.UsageRows.Count == 4 && data.UsageRows[2].Valid && data.UsageRows[2].Remaining == 0 && !data.UsageRows[3].Valid, "zero quota valid, missing estimation independent");
             Assert(data.ThirdPartyQuotas.Count == 2 && data.ThirdPartyQuotas[0].WindowSeconds == 18000 && data.ThirdPartyEstimate == null, "two quota columns and unavailable estimate hidden");
-            data = CcSwitchClient.Extract(p, code, Fixture(now.AddMinutes(-7), now.AddDays(7), "pro", 80, true), now);
+            data = CcSwitchClient.Extract(p, code, Fixture(now.AddMinutes(-14), now.AddDays(7), "pro", 80, true), now);
+            Assert(data.ThirdPartyQuotas.Count == 1 && data.ThirdPartyEstimate != null, "snapshot within fifteen minutes remains usable");
+            data = CcSwitchClient.Extract(p, code, Fixture(now.AddMinutes(-16), now.AddDays(7), "pro", 80, true), now);
             Assert(data.UsageRows[0].Valid && !data.UsageRows[1].Valid && !data.UsageRows[2].Valid, "stale quota preserves wallet only");
             Assert(data.ThirdPartyQuotas.Count == 0 && data.ThirdPartyEstimate == null, "stale quotas never become rings");
+            Assert(data.UsageRows[1].InvalidMessage.Contains("15"), "stale quota reports freshness cause");
             data = CcSwitchClient.Extract(p, code, Fixture(now, now.AddSeconds(-1), "pro", 80, true), now);
             Assert(!data.UsageRows[1].Valid && data.UsageRows[1].InvalidMessage == "已到重置时间", "past reset unavailable");
             data = CcSwitchClient.Extract(p, code, "{\"success\":false,\"message\":\"查询失败\"}", now);
@@ -69,6 +72,22 @@ namespace CodexUsageBar
             Assert(rejected, "noncustom same-origin constraint");
             p.TemplateType = "custom";
             Assert(CcSwitchClient.ValidateUrl("http://localhost:1234/quota", p).IsLoopback, "custom loopback queries");
+            string primaryFixture = Fixture(now, now.AddDays(7), "pro", 80, true).Replace("weekly", "primary").Replace("0.2", "15.20220243").Replace("49.32", "212.49");
+            data = CcSwitchClient.Extract(p, code, primaryFixture, now);
+            Assert(data.ThirdPartyEstimate != null && Math.Round(data.ThirdPartyEstimate.Remaining.Value) == 14, "primary weekly window uses daily estimate rate");
+            var unmetered = (Dictionary<string, object>)CcJson.Parse(Fixture(now, now.AddDays(7), "plus", 80, false));
+            var unmeteredData = (Dictionary<string, object>)unmetered["data"];
+            ((Dictionary<string, object>)unmeteredData["estimation"])["status"] = "unmetered_usage_detected";
+            data = CcSwitchClient.Extract(p, code, CcJson.Encode(unmetered), now);
+            Assert(String.IsNullOrEmpty(data.SourceError) && data.ThirdPartyQuotas.Count == 2 && data.ThirdPartyBalance != null && data.ThirdPartyEstimate == null, "unmetered estimate is not network failure");
+            Assert(data.UsageRows[3].InvalidMessage.Contains("Unmetered"), "unmetered estimation reason is specific");
+            var stalePayload = (Dictionary<string, object>)CcJson.Parse(Fixture(now.AddMinutes(-7), now.AddDays(7), "pro", 80, false));
+            var staleData = (Dictionary<string, object>)stalePayload["data"];
+            staleData["status"] = "stale"; staleData["windows"] = new object[0];
+            ((Dictionary<string, object>)staleData["estimation"])["status"] = "source_unavailable";
+            data = CcSwitchClient.Extract(p, code, CcJson.Encode(stalePayload), now);
+            Assert(data.ThirdPartyQuotas.Count == 0 && data.ThirdPartyBalance != null && data.ThirdPartyEstimate == null && String.IsNullOrEmpty(data.SourceError), "server stale preserves wallet without fake quota or network failure");
+            Assert(data.UsageRows[1].InvalidMessage.Contains("Server marked quota stale"), "server cutoff is distinct from local snapshot age");
             DatabaseAndSettings();
             HttpRoundTrip();
             using (var form = new OverlayForm())
@@ -177,6 +196,12 @@ namespace CodexUsageBar
                 Assert(result.UsageRows[0].Remaining == 49.32, "actual HTTP response extracted");
                 listener.Stop();
                 Assert(client.Reevaluate(p).UsageRows[0].Remaining == 49.32, "cached reevaluation needs no HTTP server");
+                var receivedField = typeof(CcSwitchClient).GetField("_received", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+                p.IntervalMinutes = 0;
+                receivedField.SetValue(client, DateTime.UtcNow.AddMinutes(-14));
+                Assert(String.IsNullOrEmpty(client.Reevaluate(p).SourceError), "fourteen minute cache usable");
+                receivedField.SetValue(client, DateTime.UtcNow.AddMinutes(-16));
+                Assert(!String.IsNullOrEmpty(client.Reevaluate(p).SourceError), "sixteen minute cache expired");
                 client.Clear(); Assert(client.Reevaluate(p) == null, "selection change clears cache");
             }
             finally { listener.Stop(); thread.Join(3500); }

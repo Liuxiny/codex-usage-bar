@@ -2,7 +2,7 @@
 
 > Windows 版 Codex 用量伴随工具。支持官方 App Server、CC Switch，以及其他第三方 API 的自定义用量查询；未安装 CC Switch 也可独立配置。界面使用独立原生窗口。
 
-![Version](https://img.shields.io/badge/version-0.7.8-blue)
+![Version](https://img.shields.io/badge/version-0.7.9-blue)
 ![Platform](https://img.shields.io/badge/platform-Windows%2010%2F11-lightgrey)
 ![Architecture](https://img.shields.io/badge/arch-x64-lightgrey)
 
@@ -50,14 +50,16 @@ CodexUsageBar.exe
   └─ WinForms 原生悬浮窗
 ```
 
-0.7.8 不使用 `9335`、CDP、DOM selector、`renderer-inject.js`、UI Automation 取数或高频截图。
+0.7.9 不使用 `9335`、CDP、DOM selector、`renderer-inject.js`、UI Automation 取数或高频截图。
 
 ## 连接与刷新
 
 - 默认自动跟随 CC Switch 当前 Codex 服务商。未找到 CC Switch 数据库或未选中服务商时使用官方；明确选择“仅 CC Switch”时不会回退。
 - 第三方模式不启动 App Server。每 5 秒检查配置及选中服务商；修改脚本、凭据或服务商后重新查询，丢弃切换期间返回的旧结果。
+- 启用自动查询时，休眠恢复或轮询中断超过1分钟后优先重新请求，再评估旧缓存；刷新间隔为0仍保持手动模式。
+- 已知套餐接口的失效原因区分快照超过15分钟、已到重置时间和服务端标记过期；估算不可用不会变成网络错误。
 - 第三方查询遵循 `autoQueryInterval`（分钟）；未配置时每 2 分钟，0 为仅初始/切换/手动刷新。请求超时 2–30 秒；失败等待下一次计划刷新或用户手动刷新。
-- 每 15 秒重新执行缓存响应的 extractor，更新 `Date.now()` 驱动的过期判断与倒计时，不额外请求。缓存超过 `max(6 分钟, 2 × 刷新间隔)` 后失效。
+- 每 15 秒重新执行缓存响应的 extractor，更新 `Date.now()` 驱动的过期判断与倒计时，不额外请求。缓存超过 `max(15 分钟, 2 × 刷新间隔)` 后失效。
 - 以下 App Server 连接与 Token 刷新规则仅适用于官方数据源。
 - 只在检测到官方 Codex Windows 进程时启动 App Server。
 - 启动后必须成功完成 `initialize` 和 `account/rateLimits/read`，托盘才显示“连接成功”。
@@ -81,7 +83,7 @@ CodexUsageBar.exe
 
 ## 安装
 
-1. 从 Releases 下载 `CodexUsageBar-Setup-v0.7.8.exe`。
+1. 从 Releases 下载 `CodexUsageBar-Setup-v0.7.9.exe`。
 2. 运行安装器。
 3. 安装完成后托盘出现 Codex Usage Bar 图标。
 4. 左键或右键托盘图标选择展示方式。
@@ -140,7 +142,7 @@ Base URL 应为用量接口所在站点，可能与 CPA 模型转发地址不同
 - 支持 `{{baseUrl}}`、`{{apiKey}}`、`{{accessToken}}`、`{{userId}}` 的 CC Switch 原样变量替换。脚本需返回 `request` 对象和同步 `extractor(response)` 函数；不是 JSON 配置。
 - 支持字符串 HTTP body、普通请求头及 User-Agent/Accept/Content-Type；不跟随 HTTP 重定向，遇到重定向请填写最终查询地址。
 - 支持单行或数组的 `planName/extra/isValid/invalidMessage/total/used/remaining/unit`；最多解析 32 行；悬浮窗按额度、余额、估算分区展示，测试查询可查看全部原始行。
-- 内置套餐模板保留 PRO 仅周额度、6 分钟新鲜度、余额折合周额度规则；估算不是额外额度。已知套餐响应的原始 `reset_at` 用于悬浮窗官方格式的本地时间显示，测试查询仍保留脚本原来的 UTC+8 说明。
+- 内置套餐模板保留 PRO 仅周额度、15 分钟新鲜度、余额折合周额度规则；估算不是额外额度。已知套餐响应的原始 `reset_at` 用于悬浮窗官方格式的本地时间显示，测试查询仍保留脚本原来的 UTC+8 说明。
 - 自定义脚本可为额度行补充 `kind: "quota"`、`windowSeconds`（18000/604800 等）、`resetAt`（带时区 ISO 字符串或 Unix 秒）；余额/估算可用 `kind: "balance"`/`"estimate"`。缺失结构化日期时显示重置时间未知，不反推格式化说明文字。
 - HTTPS 查询明确启用 TLS 1.2，避免独立 .NET Framework EXE 默认旧协议造成 SecureChannelFailure；保留系统证书验证。
 - 使用 Windows 自带 Chakra JSRT，支持本项目示例中的 `Array.find`、`Date` 等语法。与上游 QuickJS 并非所有较新 JS 语法都等价；不支持依赖 CC Switch 原生后端的专用查询模板、自动登录或签名服务。

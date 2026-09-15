@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
@@ -267,8 +267,8 @@ namespace CodexUsageBar
             if (_response == null) return null;
             // Running the extractor again updates Date.now()-based freshness and countdowns
             // without sending another HTTP request or inventing reset information.
-            if (DateTime.UtcNow - _received > TimeSpan.FromMinutes(Math.Max(6, provider.IntervalMinutes * 2)))
-                return Failure(provider, "Cached usage expired; refresh required");
+            if (DateTime.UtcNow - _received > TimeSpan.FromMinutes(Math.Max(15, provider.IntervalMinutes * 2)))
+                return Failure(provider, "缓存用量已过期，请刷新 / Cached usage expired; refresh required");
             return Extract(provider, _script, _response, _received);
         }
         internal void Clear() { _response = null; _script = null; }
@@ -301,11 +301,33 @@ namespace CodexUsageBar
             {
                 if (row.Name == prefix + "站内余额") row.Kind = "balance";
                 if (row.Name == prefix + "余额折合周额度") row.Kind = "estimate";
+                if (!row.Valid && row.Kind == "estimate" &&
+                    CcJson.Text(CcJson.Get(data, "estimation"), "status") == "unmetered_usage_detected")
+                    row.InvalidMessage = "存在未计费使用，无法估算 / Unmetered usage prevents estimation";
+
                 double seconds = row.Name == prefix + "5小时" ? 18000 : row.Name == prefix + "周" ? 604800 : 0;
                 if (seconds == 0) continue;
                 row.Kind = "quota"; row.WindowSeconds = seconds;
                 foreach (object window in windows)
                     if (CcJson.Number(window, "window_seconds") == seconds) { row.ResetsAt = ParseReset(CcJson.Get(window, "reset_at")); break; }
+                if (!row.Valid && (String.IsNullOrEmpty(row.InvalidMessage) || row.InvalidMessage == "暂不可用"))
+                {
+                    long? updated = ParseReset(CcJson.Get(data, "updated_at"));
+                    double now = (DateTime.UtcNow - new DateTime(1970, 1, 1, 0, 0, 0, DateTimeKind.Utc)).TotalSeconds;
+                    if (row.ResetsAt.HasValue && row.ResetsAt.Value <= now)
+                        row.InvalidMessage = "已到重置时间，等待更新 / Reset reached; awaiting update";
+                    else if (!updated.HasValue)
+                        row.InvalidMessage = "缺少额度更新时间 / Missing snapshot timestamp";
+                    else if (now - updated.Value > 900)
+                        row.InvalidMessage = "额度快照超过15分钟 / Quota snapshot older than 15 minutes";
+                    else if (now - updated.Value < -60)
+                        row.InvalidMessage = "额度更新时间异常 / Snapshot timestamp is in the future";
+                    else if (CcJson.Text(data, "status") == "stale")
+                        row.InvalidMessage = "服务端额度已过期 / Server marked quota stale";
+                    else if (CcJson.Text(data, "status") != "available" && CcJson.Text(data, "status") != "exhausted")
+                        row.InvalidMessage = "服务端额度暂不可用 / Server quota unavailable";
+                }
+
             }
         }
         private static long? ParseReset(object value)
