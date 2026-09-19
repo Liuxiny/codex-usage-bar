@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Drawing;
 using System.Drawing.Drawing2D;
@@ -651,28 +651,14 @@ namespace CodexUsageBar
             return centered >= fallback && centered + percentWidth <= columnWidth ? centered : fallback;
         }
 
-        // Use glyph advances, without TextRenderer's layout overhang, between styled runs.
+        // Measure with the same GDI renderer used by DrawText. Font.ToHfont()
+        // can resolve a different pixel height at the desktop DPI, underestimating
+        // each styled run even when the overall row has plenty of free space.
         private static int TextAdvance(string value, Font font)
         {
             if (String.IsNullOrEmpty(value)) return 0;
-            IntPtr dc = NativeMethods.GetDC(IntPtr.Zero);
-            IntPtr handle = font.ToHfont();
-            IntPtr previous = NativeMethods.SelectObject(dc, handle);
-            try
-            {
-                Size size;
-                if (!NativeMethods.GetTextExtentPoint32(dc, value, value.Length, out size))
-                    throw new InvalidOperationException("Unable to measure overlay text.");
-                return size.Width;
-            }
-            finally
-            {
-                NativeMethods.SelectObject(dc, previous);
-                NativeMethods.DeleteObject(handle);
-                NativeMethods.ReleaseDC(IntPtr.Zero, dc);
-            }
+            return MeasureTextWidth(value, font);
         }
-
         private static int StyledWidth(string value, Font normal, Font numeric)
         {
             int width = 0;

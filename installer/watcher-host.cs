@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Drawing;
@@ -14,8 +14,8 @@ using Microsoft.Win32;
 [assembly: AssemblyTitle("Codex Usage Bar")]
 [assembly: AssemblyProduct("Codex Usage Bar")]
 [assembly: AssemblyCompany("Codex Usage Bar")]
-[assembly: AssemblyVersion("0.7.9.0")]
-[assembly: AssemblyFileVersion("0.7.9.0")]
+[assembly: AssemblyVersion("0.7.10.0")]
+[assembly: AssemblyFileVersion("0.7.10.0")]
 
 namespace CodexUsageBar
 {
@@ -45,7 +45,7 @@ namespace CodexUsageBar
 
     internal static class CompanionHost
     {
-        internal const string Version = "0.7.9";
+        internal const string Version = "0.7.10";
         internal const string MutexName = "Local\\CodexUsageBarCompanion";
         internal const string ExitEventName = "Local\\CodexUsageBarExit";
 
@@ -967,6 +967,41 @@ namespace CodexUsageBar
                     Assert(NativeMethods.GetWindow(overlayHandle, NativeMethods.GW_OWNER) == owner.Handle, "attached owner level");
                     overlay.SetMode(DisplayMode.Independent);
                     Assert(NativeMethods.GetWindow(overlayHandle, NativeMethods.GW_OWNER) == IntPtr.Zero, "independent owner cleared");
+                }
+                // A styled run must have enough room for the renderer that paints it.
+                var advanceMethod = typeof(OverlayForm).GetMethod("TextAdvance", BindingFlags.NonPublic | BindingFlags.Static);
+                using (var textOverlay = new OverlayForm())
+                foreach (int dpi in new int[] { 96, 120, 144, 192 })
+                foreach (float pixels in new float[] { 13f, 14f, 16f })
+                foreach (FontStyle style in new FontStyle[] { FontStyle.Regular, FontStyle.Bold })
+                using (var font = new Font("Segoe UI", pixels * dpi / 96f, style, GraphicsUnit.Pixel))
+                foreach (string run in new string[] { "99%", "79.36", " USD", "约 ", "500%", " 周" })
+                {
+                    int allocated = (int)advanceMethod.Invoke(null, new object[] { run, font });
+                    int required = TextRenderer.MeasureText(run, font, new Size(Int32.MaxValue, Int32.MaxValue),
+                        TextFormatFlags.NoPadding | TextFormatFlags.SingleLine).Width;
+                    // Compare the actual styled run with an unconstrained, non-ellipsis
+                    // reference, so a passing width check cannot hide clipped glyphs.
+                    using (var actual = new Bitmap(240, 64))
+                    using (var expected = new Bitmap(240, 64))
+                    {
+                        using (var graphics = Graphics.FromImage(actual))
+                        {
+                            graphics.Clear(Color.White);
+                            typeof(OverlayForm).GetMethod("DrawStyled", BindingFlags.NonPublic | BindingFlags.Instance).Invoke(textOverlay,
+                                new object[] { graphics, run, font, font, Color.Black, new RectangleF(0, 0, allocated, 64), false });
+                        }
+                        using (var graphics = Graphics.FromImage(expected))
+                        {
+                            graphics.Clear(Color.White);
+                            TextRenderer.DrawText(graphics, run, font, new Rectangle(0, 0, 240, 64), Color.Black,
+                                TextFormatFlags.NoPadding | TextFormatFlags.SingleLine | TextFormatFlags.VerticalCenter);
+                        }
+                        for (int y = 0; y < 64; y++)
+                        for (int x = 0; x < 240; x++)
+                            Assert(actual.GetPixel(x, y) == expected.GetPixel(x, y), "styled glyphs not clipped: " + dpi + "/" + pixels + "/" + run);
+                    }
+                    Assert(allocated >= required, "styled text fits at DPI " + dpi + ", font " + pixels + ": " + run + " allocated=" + allocated + " required=" + required);
                 }
                 Assert(Formatters.CompactTokens(999) == "999", "token 999");
                 Assert(Formatters.CompactTokens(1250) == "1.3K", "token 1250");
